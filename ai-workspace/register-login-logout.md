@@ -387,7 +387,7 @@ surfaced: `next build`'s stricter check rejected passing a `Uint8Array` directly
 and the Workers runtime. `npm run test` (5 unit + 4 workers), `npm run lint`, and `npm run build`
 all pass.
 
-### Phase 3: User Service - PLANNED
+### Phase 3: User Service - COMPLETED
 
 **Objective**: One module that owns all reads and writes to the `users` table.
 
@@ -414,6 +414,23 @@ from Phase 1, migrations already applied):
 **Deliverables**:
 - `src/lib/services/user-service.ts`
 - `src/lib/services/user-service.test.ts`, all green
+
+**What was actually built**: exactly the above. Tests were written first and confirmed red
+(`Cannot find module './user-service'`), then `user-service.ts` was added. Two test-harness
+adjustments were needed beyond the original plan:
+
+- **Workers config scope**: `vitest.workers.config.mts` was extended to include
+  `src/lib/services/**/*.test.ts` (with the `@/` alias added to that config), and
+  `vitest.config.mts` was updated to *exclude* that same glob from the plain unit tier — otherwise
+  `npm run test:unit` tried to run D1 tests under Node and failed on `cloudflare:test`.
+- **Test isolation**: an initial `afterEach(() => reset())` approach wiped the D1 schema after the
+  first test (`no such table: users`). Replaced with per-test unique `email`/`username` values via
+  a `createTestInput()` helper — simpler than re-applying migrations after every `reset()`.
+
+`UserAlreadyExistsError` (with a `field: "email" | "username"` property) is thrown when D1 reports a
+`UNIQUE` constraint failure; the message is parsed to identify which column conflicted. All eight
+service methods from the task list are implemented. `npm run test` (5 unit + 11 workers), `npm run
+lint`, and `npm run build` all pass.
 
 ### Phase 4: Auth Endpoints - PLANNED
 
@@ -455,15 +472,16 @@ Verified manually via the Acceptance Criteria below instead. Revisit if this pag
 
 ## Technical Implementation Details
 
-**Note**: Phases 0–2 are implemented (testing infrastructure, D1/`users` table, and password
-hashing). Phases 3–5 below are still the planned approach and should be updated to reflect what
-was actually built as each phase completes.
+**Note**: Phases 0–3 are implemented (testing infrastructure, D1/`users` table, password hashing,
+and user service). Phases 4–5 below are still the planned approach and should be updated to reflect
+what was actually built as each phase completes.
 
 ### Key Files
 
-- `vitest.config.mts` - plain-Node Vitest config (unit tier); scoped to `src/**/*.test.ts`
-- `vitest.workers.config.mts` - **(built in Phase 1, not part of the original plan)** Workers-pool
-  Vitest config (D1 tier); scoped to `test/**/*.test.ts`; declares the `DB` binding directly via
+- `vitest.config.mts` - plain-Node Vitest config (unit tier); scoped to `src/**/*.test.ts`,
+  excluding `src/lib/services/**/*.test.ts` (D1 tests run in the workers tier instead)
+- `vitest.workers.config.mts` - Workers-pool Vitest config (D1 tier); scoped to `test/**/*.test.ts`
+  and `src/lib/services/**/*.test.ts`; declares the `DB` binding directly via
   `miniflare.d1Databases` rather than reading `wrangler.jsonc`
 - `test/apply-migrations.ts` - test setup file that applies `migrations/` to the test D1 before
   tests run, via `readD1Migrations()` / `applyD1Migrations()`
@@ -478,7 +496,8 @@ was actually built as each phase completes.
 - `src/lib/password.ts` / `src/lib/password.test.ts` - PBKDF2 hashing/verification via Web Crypto,
   no dependencies (done in Phase 2; 5 unit tests, all green)
 - `src/lib/services/user-service.ts` / `user-service.test.ts` - the only module allowed to query
-  `users`; CRUD + credential verification, takes `db: D1Database` as a parameter
+  `users`; CRUD + credential verification, takes `db: D1Database` as a parameter (done in Phase 3;
+  7 workers tests, all green)
 - `src/lib/schemas/auth.ts` - Zod request schemas shared by the route handlers
 - `src/app/api/auth/register/route.ts` (+ `route.test.ts`) - POST handler for registration
 - `src/app/api/auth/login/route.ts` (+ `route.test.ts`) - POST handler for login
@@ -821,6 +840,29 @@ type doesn't satisfy `BufferSource`.
 options object. Behavior is unchanged; the copy satisfies the type checker.
 **Code Reference**: `src/lib/password.ts:37-40`
 
+### `reset()` between tests wipes the D1 schema
+**Problem**: After the first user-service test passed, every subsequent test failed with
+`no such table: users`.
+**Cause**: `afterEach(() => reset())` from `cloudflare:test` clears all attached bindings more
+aggressively than just deleting rows — the `users` table created by `applyD1Migrations()` in the
+setup file was gone after the first `reset()`.
+**Solution**: Dropped `reset()` entirely. Each test now generates unique `email`/`username` values
+via a `createTestInput()` helper so tests don't collide, without needing to re-apply migrations
+between cases.
+**Code Reference**: `src/lib/services/user-service.test.ts:11-32`
+
+### D1-backed service tests picked up by the unit tier
+**Problem**: `npm run test:unit` failed on `src/lib/services/user-service.test.ts` with
+`Cannot find package 'cloudflare:test'`.
+**Cause**: `vitest.config.mts` includes all of `src/**/*.test.ts`, but service tests need the
+Workers pool (for `env.DB` and `cloudflare:test`).
+**Solution**: Exclude `src/lib/services/**/*.test.ts` from `vitest.config.mts` and include the same
+glob in `vitest.workers.config.mts` instead. Also added the `@/` path alias to the workers config
+so the service module can import `@/lib/password`.
+**Code Reference**: `vitest.config.mts:10-14`, `vitest.workers.config.mts:1-28`
+
+---
+
 ### PowerShell `Select-Object` silently drops output for some commands
 **Problem**: `Get-ChildItem "node_modules/@cloudflare" | Select-Object Name` printed nothing, even
 though the directory clearly exists and `Test-Path` confirmed it.
@@ -860,9 +902,7 @@ captures PowerShell's table-formatted output for `Select-Object`.
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phase 2 complete (Password Hashing Utility); Phase 3 (User Service) not
-started
+**Current Phase**: Phase 3 complete (User Service); Phase 4 (Auth Endpoints) not started
 **Status**: IN PROGRESS
-**Next Steps**: Awaiting review of Phase 2 before starting Phase 3 — implement
-`src/lib/services/user-service.ts` test-first, using the Workers-pool tier and the password module
-from this phase.
+**Next Steps**: Awaiting review of Phase 3 before starting Phase 4 — implement the three auth route
+handlers test-first, using Zod validation and the user service from this phase.

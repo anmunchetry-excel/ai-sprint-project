@@ -3,6 +3,11 @@ import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+	resolve: {
+		alias: {
+			"@": path.resolve(import.meta.dirname, "./src"),
+		},
+	},
 	plugins: [
 		cloudflareTest(async () => {
 			const migrationsPath = path.join(import.meta.dirname, "migrations");
@@ -19,7 +24,7 @@ export default defineConfig({
 		}),
 	],
 	test: {
-		include: ["test/**/*.test.ts"],
+		include: ["test/**/*.test.ts", "src/lib/services/**/*.test.ts"],
 		setupFiles: ["./test/apply-migrations.ts"],
 	},
 });
