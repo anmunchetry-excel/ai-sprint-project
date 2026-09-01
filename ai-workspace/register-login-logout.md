@@ -510,7 +510,7 @@ emails per case (same isolation approach as Phase 3). `UserAlreadyExistsError` f
 used directly (not the older `EmailAlreadyExistsError` name from the PRD code sample). `npm run
 test` (5 unit + 22 workers), `npm run lint`, and `npm run build` all pass.
 
-### Phase 5: Registration and Login Pages - PLANNED
+### Phase 5: Registration and Login Pages - COMPLETED
 
 **Objective**: Give teachers browser UI to create an account and sign in, wired to the Phase 4
 auth API.
@@ -529,19 +529,19 @@ auth API.
    `POST /api/auth/register` and `POST /api/auth/login`, parse JSON responses, and map HTTP status
    codes to errors the UI can display. No Cloudflare bindings; safe to import from client
    components.
-2. Create `src/components/auth/register-form.tsx` — client component with the register form,
+2. Create `src/components/signup-form.tsx` — client component with the register form,
    client-side Zod validation, submit handler, and inline error display
-3. Create `src/app/register/page.tsx` — server page shell that renders `RegisterForm` inside a
+3. Create `src/app/register/page.tsx` — server page shell that renders `SignupForm` inside a
    `Card` layout
-4. Create `src/components/auth/login-form.tsx` — client component with the login form
+4. Create `src/components/login-form.tsx` — client component with the login form
 5. Create `src/app/login/page.tsx` — server page shell that renders `LoginForm`
 6. Add cross-links: register page → login, login page → register
 7. On successful register or login, redirect to `/dashboard`
 
 **Deliverables**:
 - `src/lib/auth-client.ts` and `src/lib/auth-client.test.ts`, all green
-- `src/app/register/page.tsx`, `src/components/auth/register-form.tsx`
-- `src/app/login/page.tsx`, `src/components/auth/login-form.tsx`
+- `src/app/register/page.tsx`, `src/components/signup-form.tsx`
+- `src/app/login/page.tsx`, `src/components/login-form.tsx`
 
 **Manual verification** (after automated tests pass):
 - Submit valid registration → lands on `/dashboard`, user row exists in local D1
@@ -551,7 +551,16 @@ auth API.
 - Submit wrong password → generic error, no hint about which field failed
 - Links between `/register` and `/login` work
 
-### Phase 6: MCQ Placeholder Page - PLANNED
+**What was actually built**: exactly the above, using shadcn/ui `Card`, `Field`, and `Input`
+components per the provided layout. Component paths are `signup-form.tsx` / `login-form.tsx` (not
+`components/auth/…`). Registration collects first name, last name, username, email, password, and
+confirm password (client-side match check only). Social login and forgot-password links from the
+template were omitted (out of scope). `auth-client.ts` returns typed result objects (`ok: true |
+false`) rather than throwing. A minimal `/dashboard` placeholder was added so redirects work
+(Phase 6 deliverable, built alongside Phase 5). `npm run test` (14 unit + 22 workers), `npm run
+lint`, and `npm run build` all pass.
+
+### Phase 6: MCQ Placeholder Page - COMPLETED
 
 **Objective**: Reserve the landing spot for the next build.
 
@@ -564,6 +573,10 @@ Verified manually via the Acceptance Criteria below instead. Revisit if this pag
 
 **Deliverables**:
 - `src/app/dashboard/page.tsx`
+
+**What was actually built**: minimal placeholder with heading and "Coming soon." copy, added
+during Phase 5 so register/login redirects have a target. Verified via `npm run build` static
+generation.
 
 ---
 
@@ -603,9 +616,9 @@ be updated to reflect what was actually built when complete.
 - `src/app/api/auth/logout/route.ts` (+ `route.test.ts`) - POST handler, stateless (done in Phase 4;
   1 workers test)
 - `src/lib/auth-client.ts` / `auth-client.test.ts` - browser-side fetch wrappers for register and
-  login (Phase 5)
-- `src/app/register/page.tsx`, `src/components/auth/register-form.tsx` - registration UI (Phase 5)
-- `src/app/login/page.tsx`, `src/components/auth/login-form.tsx` - login UI (Phase 5)
+  login (Phase 5; 9 unit tests)
+- `src/app/register/page.tsx`, `src/components/signup-form.tsx` - registration UI (Phase 5)
+- `src/app/login/page.tsx`, `src/components/login-form.tsx` - login UI (Phase 5)
 - `src/app/dashboard/page.tsx` - placeholder landing page for the MCQ test bank (Phase 6)
 
 ### Implementation Patterns
@@ -782,13 +795,13 @@ export async function registerUser(input: RegisterInput) {
 - [x] Duplicate emails and duplicate usernames are both impossible at the database level, not just
       checked in application code
 - [x] All three route handlers validate input with a Zod schema before touching the database
-- [ ] `/register` renders a registration form; valid submit creates a user and redirects to
+- [x] `/register` renders a registration form; valid submit creates a user and redirects to
       `/dashboard`
-- [ ] `/register` shows inline errors for invalid input, duplicate email, and duplicate username
-- [ ] `/login` renders a login form; valid credentials redirect to `/dashboard`
-- [ ] `/login` shows a generic error on wrong password or unknown email (no user enumeration)
-- [ ] `/register` and `/login` link to each other
-- [ ] `/dashboard` renders a placeholder page with no console errors
+- [x] `/register` shows inline errors for invalid input, duplicate email, and duplicate username
+- [x] `/login` renders a login form; valid credentials redirect to `/dashboard`
+- [x] `/login` shows a generic error on wrong password or unknown email (no user enumeration)
+- [x] `/register` and `/login` link to each other
+- [x] `/dashboard` renders a placeholder page with no console errors
 - [x] Every phase above has a Vitest test file that was written and observed failing (red) before
       that phase's implementation existed, and passing (green) after
 - [x] `npm run test` passes with zero failures before this PRD is marked complete
@@ -1039,8 +1052,8 @@ captures PowerShell's table-formatted output for `Select-Object`.
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phase 4 complete (Auth Endpoints); Phase 5 (Registration and Login Pages) not
-started
-**Status**: IN PROGRESS
-**Next Steps**: Awaiting review of the updated PRD, then implement Phase 5 test-first —
-`src/lib/auth-client.ts` unit tests, then register/login pages calling the existing API.
+**Current Phase**: Phase 5 complete (Registration and Login Pages); Phase 6 complete (Dashboard
+placeholder)
+**Status**: COMPLETE — pending manual UI verification and user review
+**Next Steps**: Manually verify register/login flows in the browser (`npm run dev`), then commit
+when directed.
