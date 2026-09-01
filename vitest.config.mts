@@ -10,7 +10,7 @@ export default defineConfig({
 	test: {
 		environment: "node",
 		include: ["src/**/*.test.ts"],
-		exclude: ["src/lib/services/**/*.test.ts"],
+		exclude: ["src/lib/services/**/*.test.ts", "src/app/api/**/*.test.ts"],
 		passWithNoTests: true,
 	},
 });

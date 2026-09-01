@@ -24,7 +24,7 @@ export default defineConfig({
 		}),
 	],
 	test: {
-		include: ["test/**/*.test.ts", "src/lib/services/**/*.test.ts"],
+		include: ["test/**/*.test.ts", "src/lib/services/**/*.test.ts", "src/app/api/**/*.test.ts"],
 		setupFiles: ["./test/apply-migrations.ts"],
 	},
 });

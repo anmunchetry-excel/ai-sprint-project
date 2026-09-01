@@ -1,5 +1,5 @@
 Date created: September 1, 2026
-Date last modified: September 2, 2026
+Date last modified: September 2, 2026 (Phase 5 — Registration & Login UI added)
 
 # User Registration, Login, and Logout - Technical PRD
 
@@ -16,9 +16,9 @@ request, so a user identity foundation has to exist before anything collaborativ
 ## Hypothesis
 
 We believe that introducing a `users` table plus register, login, and logout endpoints backed by
-a dedicated user service will give every future feature (starting with the MCQ test bank) a
-reliable way to identify a teacher, without yet taking on the cost of session management or a
-frontend.
+a dedicated user service — and browser pages that call those endpoints — will give every future
+feature (starting with the MCQ test bank) a reliable way to identify a teacher, without yet
+taking on the cost of session management or persistent login state.
 
 ---
 
@@ -36,6 +36,11 @@ frontend.
 - `POST /api/auth/register` — creates a new user via the user service.
 - `POST /api/auth/login` — verifies credentials via the user service.
 - `POST /api/auth/logout` — a stateless success response (see Assumptions below).
+- **Registration page** at `/register` — a form that collects email, username, first name, last
+  name, and password, calls `POST /api/auth/register`, and shows validation or conflict errors
+  inline.
+- **Login page** at `/login` — a form that collects email and password, calls
+  `POST /api/auth/login`, and shows a generic error on failure.
 - One minimal placeholder page at `/dashboard` that reserves the spot where the MCQ test bank
   will live. No MCQ logic, no auth gating — just a heading and a short "coming soon" message.
 - A Vitest test suite covering every phase below, written test-first (red) and made to pass
@@ -45,25 +50,27 @@ frontend.
 
 Not being built now, but expected to be picked up in a later phase:
 
-- Register / login / logout **UI** — forms, client-side validation, error display. This phase is
-  backend-only aside from the one placeholder page above.
+- **Logout UI** — a button or link that calls `POST /api/auth/logout`. The API exists; a visible
+  control is deferred until session management makes logout meaningful.
 - Session or token management of any kind — cookies, JWTs, refresh tokens, or any other mechanism
-  for remembering that a user is logged in between requests.
+  for remembering that a user is logged in between requests. Successful login/register redirects
+  to `/dashboard`, but nothing persists "who is logged in" across page loads or tabs.
 - Password reset / "forgot password" flow.
 - Email verification.
 - Role-based permissions (e.g., distinguishing an admin from a regular teacher).
 - Rate limiting or brute-force protection on login attempts.
 - All MCQ / test-bank functionality (authoring questions, banks, sharing, collaboration) — this
   is the very next build after this one.
-- Automated UI/component tests (e.g., React Testing Library) for the Phase 5 placeholder page —
-  it has no logic yet, so manual verification is enough for now.
+- Automated UI/component tests (e.g., React Testing Library) for purely presentational pages —
+  see Phase 5 and Phase 6 testing notes for what is and is not automated.
 
 ### Cut
 
 Nothing was cut during planning. Scope was defined narrowly from the outset by explicit product
-direction: build the user data model and the three auth endpoints, and defer sessions, UI, and
-MCQ features to later phases rather than trimming them down mid-planning. Social login was
-likewise never in scope for this phase, so it's listed above as deferred, not cut.
+direction: build the user data model and the three auth endpoints first, defer sessions and MCQ
+features to later phases rather than trimming them down mid-planning. Register/login **UI** was
+originally deferred to keep Phase 0–4 backend-only; it is now **Phase 5** per a later instruction.
+Social login was likewise never in scope, so it's listed above as deferred, not cut.
 
 ### Assumptions & Interpretation Notes
 
@@ -78,12 +85,15 @@ here so they're easy to correct:
   `POST /api/auth/logout` is a stateless endpoint that returns success immediately. This gives the
   future frontend a stable route to call now; real invalidation logic gets added when session
   management ships.
-- **Route Handlers, not Server Actions.** This project's default convention
-  (`.cursor/rules/nextjs.mdc`) prefers Server Actions for form submissions and reserves Route
-  Handlers for cases needing "an HTTP endpoint for an external consumer." There is no form yet in
-  this phase — the frontend is deferred — and these endpoints need to be independently callable
-  (curl/Postman, and eventually the frontend phase), so they're built as Route Handlers under
-  `src/app/api/auth/`.
+- **Route Handlers for the API; client `fetch` for the UI.** Phases 0–4 built the auth API as
+  Route Handlers under `src/app/api/auth/` so endpoints stay independently callable (curl,
+  Postman, tests). Phase 5's register and login **pages** are client components that call those
+  endpoints via `fetch` from the browser — not Server Actions — keeping a clear boundary between
+  the HTTP API (already tested) and the UI layer being added now.
+- **No persistent login state after redirect.** On successful register or login, the UI redirects
+  to `/dashboard`. Without sessions/tokens (still out of scope), the app cannot show "logged in as
+  …" on later visits or gate `/dashboard`. That gap is intentional and visible until a
+  session-management phase ships.
 - **Column is named `password_hash`, not `password`**, to make it unambiguous at the schema level
   that plaintext is never stored there.
 - **`username` is a new unique identity field, added alongside `email`**, per a later instruction.
@@ -200,12 +210,44 @@ accepted as an alternative login identifier — see Assumptions above.
 
 ### User Interface Requirements
 
-#### Placeholder Dashboard Page (`/dashboard`)
+#### Registration Page (`/register`)
+
+- **Client component** (`'use client'`) — the form needs local state, submit handling, and error
+  display.
+- Fields: email, username, first name, last name, password (password input type).
+- Uses existing shadcn/ui primitives already in the project (`Button`, `Input`, `Label`, `Field`,
+  `Card`) for layout and accessibility.
+- **Client-side validation** before submit: reuse `registerSchema` from `src/lib/schemas/auth.ts`
+  (Zod runs in the browser). Show field-level messages for schema failures without calling the API.
+- **On submit**: `POST /api/auth/register` with JSON body matching the API contract.
+- **On success (201)**: redirect to `/dashboard` via `useRouter().push('/dashboard')`.
+- **On 400**: display Zod-style field errors from `error.issues` in the API response.
+- **On 409**: display the conflict message and highlight the field named in `error.field` (`email`
+  or `username`).
+- **On 500**: display a generic "Something went wrong" message — no stack traces or internal
+  details.
+- Include a link to `/login` for users who already have an account.
+
+#### Login Page (`/login`)
+
+- **Client component** (`'use client'`).
+- Fields: email, password.
+- Reuse shadcn/ui primitives (same set as register).
+- **Client-side validation** before submit: reuse `loginSchema` from `src/lib/schemas/auth.ts`.
+- **On submit**: `POST /api/auth/login`.
+- **On success (200)**: redirect to `/dashboard`.
+- **On 401**: display the API's generic `Invalid email or password` message — do not add copy that
+  reveals whether the email exists.
+- **On 400**: display field errors from `error.issues`.
+- Include a link to `/register` for new users.
+
+#### Placeholder Dashboard Page (`/dashboard`) — Phase 6
 
 - Server component, no client interactivity, no data fetching.
 - Displays a heading and one line of copy indicating the MCQ test bank is coming soon.
 - No authentication gating — there is no session mechanism yet to gate with.
-- No links to or from this page are required yet; it exists solely to reserve the route.
+- Phase 5 redirects here after successful register/login; no logout control or "logged in as …"
+  display until session management ships.
 
 ---
 
@@ -220,18 +262,21 @@ exist. A phase is not done until both its tests pass **and** its Acceptance Crit
 with the code they test as `*.test.ts` (e.g. `src/lib/password.ts` → `src/lib/password.test.ts`) —
 Vitest's default discovery pattern, so no extra config is needed to find them.
 
-**Two tiers of tests**:
+**Two tiers of tests** (unchanged for backend phases; Phase 5 adds a third pattern for UI):
 
-1. **Plain unit tests** — pure logic with no Cloudflare bindings: `src/lib/password.ts` and
-   `src/lib/schemas/auth.ts`. These run under Vitest's default Node environment with no special
-   setup.
+1. **Plain unit tests** — pure logic with no Cloudflare bindings: `src/lib/password.ts`,
+   `src/lib/schemas/auth.ts`, and **Phase 5's** `src/lib/auth-client.ts` (fetch wrappers and API
+   error parsing, with `globalThis.fetch` mocked). These run under Vitest's default Node environment.
 2. **Workers-runtime tests** — anything touching D1 (the `users` table schema, `user-service.ts`,
    the route handlers). These run through Cloudflare's official Workers Vitest integration —
-   `@cloudflare/vitest-plugin` (the current package name; older docs and examples call it
-   `@cloudflare/vitest-pool-workers`) — which executes tests inside the real Workers runtime
-   (workerd) against a local D1 instance with this project's actual migrations applied via
-   `readD1Migrations()` / `applyD1Migrations()`. This exercises the real schema, including the
-   `UNIQUE` constraints, instead of a hand-rolled mock that could quietly drift from reality.
+   `@cloudflare/vitest-plugin` — inside the real Workers runtime (workerd) against a local D1
+   instance with this project's actual migrations applied via `readD1Migrations()` /
+   `applyD1Migrations()`. This exercises the real schema, including `UNIQUE` constraints, instead
+   of a hand-rolled mock.
+3. **Manual UI verification** — register and login **pages** (Phase 5) and the dashboard
+   placeholder (Phase 6). Full browser interaction is verified manually per Acceptance Criteria.
+   Component tests with React Testing Library are **not** planned unless the user explicitly
+   approves adding that dependency (per `AGENTS.md`).
 
 **Design change this requires**: `user-service.ts` functions must accept the D1 binding as a
 parameter (e.g. `createUser(db: D1Database, input)`) rather than calling `getCloudflareContext()`
@@ -432,7 +477,7 @@ adjustments were needed beyond the original plan:
 service methods from the task list are implemented. `npm run test` (5 unit + 11 workers), `npm run
 lint`, and `npm run build` all pass.
 
-### Phase 4: Auth Endpoints - PLANNED
+### Phase 4: Auth Endpoints - COMPLETED
 
 **Objective**: Expose register, login, and logout over HTTP.
 
@@ -454,7 +499,59 @@ lint`, and `npm run build` all pass.
 - Three route handlers, each validating input with Zod before calling the user service
 - Matching `route.test.ts` files, all green
 
-### Phase 5: MCQ Placeholder Page - PLANNED
+**What was actually built**: exactly the above, plus one new dependency — `zod` (listed in the
+PRD's Dependencies section; required by `.cursor/rules/nextjs.mdc` for request validation). Tests
+were written first and confirmed red (`Cannot find module './route'`), then schemas and handlers
+were added. Route tests mock `getCloudflareContext()` to return `env` from `cloudflare:test` (the
+same pattern as `.cursor/skills/testing/SKILL.md`, but inside the Workers pool so `env.DB` is a
+real local D1). `vitest.workers.config.mts` was extended to include `src/app/api/**/*.test.ts`,
+and `vitest.config.mts` excludes that glob from the unit tier. Register/login tests use unique
+emails per case (same isolation approach as Phase 3). `UserAlreadyExistsError` from Phase 3 is
+used directly (not the older `EmailAlreadyExistsError` name from the PRD code sample). `npm run
+test` (5 unit + 22 workers), `npm run lint`, and `npm run build` all pass.
+
+### Phase 5: Registration and Login Pages - PLANNED
+
+**Objective**: Give teachers browser UI to create an account and sign in, wired to the Phase 4
+auth API.
+
+**Tests (write first)**, in `src/lib/auth-client.test.ts` (plain unit tests; mock `globalThis.fetch`):
+- `registerUser` returns the parsed `{ user }` object on a 201 response
+- `registerUser` throws or returns a typed error shape on 400 (with `issues`), 409 (with `field`),
+  and 500
+- `loginUser` returns the parsed `{ user }` object on a 200 response
+- `loginUser` returns a generic error message on 401 without exposing whether the email exists
+- Client-side validation helpers reject invalid input before `fetch` is called (using the same
+  `registerSchema` / `loginSchema` as the API)
+
+**Tasks** (make the tests above pass, then build the pages):
+1. Create `src/lib/auth-client.ts` — `registerUser(input)` and `loginUser(input)` that call
+   `POST /api/auth/register` and `POST /api/auth/login`, parse JSON responses, and map HTTP status
+   codes to errors the UI can display. No Cloudflare bindings; safe to import from client
+   components.
+2. Create `src/components/auth/register-form.tsx` — client component with the register form,
+   client-side Zod validation, submit handler, and inline error display
+3. Create `src/app/register/page.tsx` — server page shell that renders `RegisterForm` inside a
+   `Card` layout
+4. Create `src/components/auth/login-form.tsx` — client component with the login form
+5. Create `src/app/login/page.tsx` — server page shell that renders `LoginForm`
+6. Add cross-links: register page → login, login page → register
+7. On successful register or login, redirect to `/dashboard`
+
+**Deliverables**:
+- `src/lib/auth-client.ts` and `src/lib/auth-client.test.ts`, all green
+- `src/app/register/page.tsx`, `src/components/auth/register-form.tsx`
+- `src/app/login/page.tsx`, `src/components/auth/login-form.tsx`
+
+**Manual verification** (after automated tests pass):
+- Submit valid registration → lands on `/dashboard`, user row exists in local D1
+- Submit duplicate email/username → inline 409 error on the correct field
+- Submit invalid fields → inline validation errors without a network call (client) or from API (400)
+- Submit valid login → lands on `/dashboard`
+- Submit wrong password → generic error, no hint about which field failed
+- Links between `/register` and `/login` work
+
+### Phase 6: MCQ Placeholder Page - PLANNED
 
 **Objective**: Reserve the landing spot for the next build.
 
@@ -472,17 +569,17 @@ Verified manually via the Acceptance Criteria below instead. Revisit if this pag
 
 ## Technical Implementation Details
 
-**Note**: Phases 0–3 are implemented (testing infrastructure, D1/`users` table, password hashing,
-and user service). Phases 4–5 below are still the planned approach and should be updated to reflect
-what was actually built as each phase completes.
+**Note**: Phases 0–4 are implemented. Phases 5–6 below are still the planned approach and should
+be updated to reflect what was actually built when complete.
 
 ### Key Files
 
 - `vitest.config.mts` - plain-Node Vitest config (unit tier); scoped to `src/**/*.test.ts`,
-  excluding `src/lib/services/**/*.test.ts` (D1 tests run in the workers tier instead)
-- `vitest.workers.config.mts` - Workers-pool Vitest config (D1 tier); scoped to `test/**/*.test.ts`
-  and `src/lib/services/**/*.test.ts`; declares the `DB` binding directly via
-  `miniflare.d1Databases` rather than reading `wrangler.jsonc`
+  excluding `src/lib/services/**/*.test.ts` and `src/app/api/**/*.test.ts` (D1 tests run in the
+  workers tier instead)
+- `vitest.workers.config.mts` - Workers-pool Vitest config (D1 tier); scoped to `test/**/*.test.ts`,
+  `src/lib/services/**/*.test.ts`, and `src/app/api/**/*.test.ts`; declares the `DB` binding
+  directly via `miniflare.d1Databases` rather than reading `wrangler.jsonc`
 - `test/apply-migrations.ts` - test setup file that applies `migrations/` to the test D1 before
   tests run, via `readD1Migrations()` / `applyD1Migrations()`
 - `test/env.d.ts` - **(built in Phase 1)** module augmentation adding the test-only
@@ -498,11 +595,18 @@ what was actually built as each phase completes.
 - `src/lib/services/user-service.ts` / `user-service.test.ts` - the only module allowed to query
   `users`; CRUD + credential verification, takes `db: D1Database` as a parameter (done in Phase 3;
   7 workers tests, all green)
-- `src/lib/schemas/auth.ts` - Zod request schemas shared by the route handlers
-- `src/app/api/auth/register/route.ts` (+ `route.test.ts`) - POST handler for registration
-- `src/app/api/auth/login/route.ts` (+ `route.test.ts`) - POST handler for login
-- `src/app/api/auth/logout/route.ts` (+ `route.test.ts`) - POST handler, stateless
-- `src/app/dashboard/page.tsx` - placeholder landing page for the MCQ test bank
+- `src/lib/schemas/auth.ts` - Zod request schemas shared by the route handlers (done in Phase 4)
+- `src/app/api/auth/register/route.ts` (+ `route.test.ts`) - POST handler for registration (done in
+  Phase 4; 6 workers tests)
+- `src/app/api/auth/login/route.ts` (+ `route.test.ts`) - POST handler for login (done in Phase 4; 4
+  workers tests)
+- `src/app/api/auth/logout/route.ts` (+ `route.test.ts`) - POST handler, stateless (done in Phase 4;
+  1 workers test)
+- `src/lib/auth-client.ts` / `auth-client.test.ts` - browser-side fetch wrappers for register and
+  login (Phase 5)
+- `src/app/register/page.tsx`, `src/components/auth/register-form.tsx` - registration UI (Phase 5)
+- `src/app/login/page.tsx`, `src/components/auth/login-form.tsx` - login UI (Phase 5)
+- `src/app/dashboard/page.tsx` - placeholder landing page for the MCQ test bank (Phase 6)
 
 ### Implementation Patterns
 
@@ -596,7 +700,7 @@ Route handler (`src/app/api/auth/register/route.ts`) — the only place that cal
 ```typescript
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { registerSchema } from "@/lib/schemas/auth";
-import { createUser, EmailAlreadyExistsError } from "@/lib/services/user-service";
+import { createUser, UserAlreadyExistsError } from "@/lib/services/user-service";
 
 export async function POST(req: Request) {
   const parsed = registerSchema.safeParse(await req.json());
@@ -610,14 +714,38 @@ export async function POST(req: Request) {
     const user = await createUser(env.DB, parsed.data);
     return Response.json({ user }, { status: 201 });
   } catch (err) {
-    if (err instanceof EmailAlreadyExistsError) {
+    if (err instanceof UserAlreadyExistsError) {
       return Response.json(
-        { error: { message: `${err.field} already registered`, field: err.field } },
+        { error: { message: `${err.field === "email" ? "Email" : "Username"} already registered`, field: err.field } },
         { status: 409 }
       );
     }
     return Response.json({ error: { message: "Something went wrong" } }, { status: 500 });
   }
+}
+```
+
+Auth client (`src/lib/auth-client.ts`) — called from Phase 5 client components; keeps `fetch` and
+response parsing out of the JSX:
+
+```typescript
+import { loginSchema, registerSchema, type LoginInput, type RegisterInput } from "@/lib/schemas/auth";
+
+export async function registerUser(input: RegisterInput) {
+  const parsed = registerSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, kind: "validation" as const, issues: parsed.error.issues };
+  }
+
+  const response = await fetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(parsed.data),
+  });
+
+  const body = await response.json();
+  if (response.ok) return { ok: true as const, user: body.user };
+  // map 400 / 409 / 500 to display-friendly errors...
 }
 ```
 
@@ -638,27 +766,33 @@ export async function POST(req: Request) {
 
 ## Acceptance Criteria
 
-- [ ] `POST /api/auth/register` creates a user with a hashed password and returns the public user
+- [x] `POST /api/auth/register` creates a user with a hashed password and returns the public user
       fields (no password or hash) on success
-- [ ] Registering with an email that already exists returns 409 and does not create a duplicate row
-- [ ] Registering with a username that already exists returns 409 and does not create a duplicate
+- [x] Registering with an email that already exists returns 409 and does not create a duplicate row
+- [x] Registering with a username that already exists returns 409 and does not create a duplicate
       row
-- [ ] Registering with invalid input (bad email format, invalid username format, password under 8
+- [x] Registering with invalid input (bad email format, invalid username format, password under 8
       characters, missing first/last name) returns 400 with field-level detail
-- [ ] `POST /api/auth/login` with correct credentials returns the public user fields
-- [ ] `POST /api/auth/login` with a wrong password or unknown email returns 401 with a generic
+- [x] `POST /api/auth/login` with correct credentials returns the public user fields
+- [x] `POST /api/auth/login` with a wrong password or unknown email returns 401 with a generic
       error message that does not reveal which part was wrong
-- [ ] `POST /api/auth/logout` returns a success response
-- [ ] Passwords are never stored, logged, or returned in plaintext anywhere in the system
+- [x] `POST /api/auth/logout` returns a success response
+- [x] Passwords are never stored, logged, or returned in plaintext anywhere in the system
 - [x] The `users` migration applies cleanly with `npx wrangler d1 migrations apply DB --local`
 - [x] Duplicate emails and duplicate usernames are both impossible at the database level, not just
       checked in application code
-- [ ] All three route handlers validate input with a Zod schema before touching the database
+- [x] All three route handlers validate input with a Zod schema before touching the database
+- [ ] `/register` renders a registration form; valid submit creates a user and redirects to
+      `/dashboard`
+- [ ] `/register` shows inline errors for invalid input, duplicate email, and duplicate username
+- [ ] `/login` renders a login form; valid credentials redirect to `/dashboard`
+- [ ] `/login` shows a generic error on wrong password or unknown email (no user enumeration)
+- [ ] `/register` and `/login` link to each other
 - [ ] `/dashboard` renders a placeholder page with no console errors
-- [ ] Every phase above has a Vitest test file that was written and observed failing (red) before
+- [x] Every phase above has a Vitest test file that was written and observed failing (red) before
       that phase's implementation existed, and passing (green) after
-- [ ] `npm run test` passes with zero failures before this PRD is marked complete
-- [ ] The D1-backed tests (schema, user service, endpoints) run against a real local D1 instance
+- [x] `npm run test` passes with zero failures before this PRD is marked complete
+- [x] The D1-backed tests (schema, user service, endpoints) run against a real local D1 instance
       with this project's actual migrations applied, not a hand-rolled mock
 
 ---
@@ -691,10 +825,8 @@ This phase has no end users yet, so metrics are engineering checks rather than p
 
 ### New npm Dependencies
 
-- **`zod`** - request validation in the route handlers. This is already the documented
-  convention for this project (`.cursor/rules/nextjs.mdc`: "Validate all Server Action and route
-  handler input with a Zod schema before use"); it just isn't installed yet. No password-hashing
-  library is needed — PBKDF2 comes from the Workers-native Web Crypto API.
+- **`zod`** - request validation in the route handlers. Installed in Phase 4; used by
+  `src/lib/schemas/auth.ts` for `registerSchema` and `loginSchema`.
 - **`vitest`** (dev) - test runner, per explicit instruction. Powers the red/green TDD loop for
   every phase in this PRD.
 - **`@cloudflare/vitest-plugin`** (dev, installed in Phase 1, currently `^1.1.3`) - Cloudflare's
@@ -747,8 +879,13 @@ This phase has no end users yet, so metrics are engineering checks rather than p
 
 - **Risk**: The generic "invalid email or password" message on login is correct security practice
   but can read as unhelpful once a UI exists.
-  **Mitigation**: Defer copy/UX refinement to the frontend phase; the API contract should stay
-  generic even after a UI is built on top of it.
+  **Mitigation**: Phase 5 displays the API's generic message verbatim — no extra copy that leaks
+  whether the email exists. UX polish can follow in a later pass; the security contract stays.
+- **Risk**: Users may expect to stay "logged in" after registering or signing in, but sessions are
+  still out of scope.
+  **Mitigation**: Phase 5 redirects to `/dashboard` on success but does not persist auth state.
+  Call this out in the UI only if needed (e.g., a one-line note on `/dashboard`); do not add
+  cookies or tokens to simulate persistence.
 
 ---
 
@@ -891,8 +1028,8 @@ captures PowerShell's table-formatted output for `Select-Object`.
   exists.
 - Run `npm run test` before checking off any Acceptance Criteria or marking a phase COMPLETED.
 - Do not add session, cookie, or token logic even if it feels like a natural next step — that
-  belongs to a future PRD.
-- Do not build MCQ/test-bank functionality beyond the single placeholder page in Phase 5.
+  belongs to a future PRD. Phase 5 pages call the API and redirect; they do not remember the user.
+- Do not build MCQ/test-bank functionality beyond the single placeholder page in Phase 6.
 - All `users` table access must go through `src/lib/services/user-service.ts`. Never call
   `env.DB` for user data from a route handler or component directly.
 - Never apply a migration with `--remote`.
@@ -902,7 +1039,8 @@ captures PowerShell's table-formatted output for `Select-Object`.
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phase 3 complete (User Service); Phase 4 (Auth Endpoints) not started
+**Current Phase**: Phase 4 complete (Auth Endpoints); Phase 5 (Registration and Login Pages) not
+started
 **Status**: IN PROGRESS
-**Next Steps**: Awaiting review of Phase 3 before starting Phase 4 — implement the three auth route
-handlers test-first, using Zod validation and the user service from this phase.
+**Next Steps**: Awaiting review of the updated PRD, then implement Phase 5 test-first —
+`src/lib/auth-client.ts` unit tests, then register/login pages calling the existing API.
