@@ -240,16 +240,24 @@ down into the service. This is what makes the service trivially testable: a test
 real local D1 instance from the Workers pool, or a fake, without needing any request context. See
 the updated code samples under Technical Implementation Details.
 
-**New dev dependencies**: `vitest`, `@cloudflare/vitest-plugin`. New `package.json` scripts:
-`"test": "vitest run"` and `"test:watch": "vitest"`.
+**New dev dependencies**: `vitest`, `@cloudflare/vitest-plugin`. Two separate Vitest config files
+now exist because the two tiers need different Vite plugins (`test.projects` was considered and
+rejected as unnecessary complexity — see Phase 1 notes): `vitest.config.mts` (plain, Node
+environment) and `vitest.workers.config.mts` (Workers pool). `package.json` scripts:
+`"test"` (runs both tiers in sequence), `"test:unit"` / `"test:watch"` (plain tier), and
+`"test:workers"` / `"test:workers:watch"` (Workers-pool tier).
 
-**Known risk**: community reports describe `@cloudflare/vitest-plugin`'s workerd-based test pool
-occasionally clashing with `@opennextjs/cloudflare`'s own Vite/Wrangler tooling in the same project
-(config and `resolve.external` conflicts). Try the real integration first in Phase 1 — it gives
-the highest-fidelity tests. If it fights the build too much, fall back to a minimal fake that
-implements only the `prepare().bind().all()` surface `user-service.ts` actually uses. That fallback
-loses real enforcement of the `UNIQUE` constraints, so keep at least one real-local-D1 test for
-that specific behavior even if the rest of the suite falls back to the fake.
+**Known risk — confirmed and resolved in Phase 1**: pointing `cloudflareTest()`'s
+`wrangler.configPath` at this project's real `wrangler.jsonc` does fail, exactly as anticipated —
+it tries to auto-load `main` (`.open-next/worker.js`), which only exists after an OpenNext build
+and isn't present under plain `npm run test`. The newer `main: false` option (documented on
+Cloudflare's site) that's meant to suppress this isn't in the installed `1.1.3` release yet (its
+`WorkersPoolOptionsSchema` only accepts `main: z.string().optional()` — confirmed by reading the
+installed package's source). **Resolution**: don't set `wrangler.configPath` at all for tests that
+only need bindings, not the real worker. Declare the D1 binding directly via `miniflare.d1Databases`
+in `vitest.workers.config.mts` instead (see Phase 1). This sidesteps `main` entirely and is
+expected to be the right pattern for Phase 3 (user service) and Phase 4 (endpoints) too, since
+those also test exported functions directly rather than the deployed worker's `fetch` handler.
 
 ---
 
@@ -278,7 +286,7 @@ lint` and `npm run build` were both re-verified after these changes and still pa
 currently exits 1 with "No test files found" — expected and correct until Phase 1/2 add real
 tests; not a failure.
 
-### Phase 1: Database Setup - PLANNED
+### Phase 1: Database Setup - COMPLETED
 
 **Objective**: Provision Cloudflare D1 and create the `users` table.
 
@@ -309,6 +317,42 @@ tests; not a failure.
 - `migrations/0001_create_users_table.sql`
 - Regenerated `cloudflare-env.d.ts` (generated file — do not hand-edit)
 - `vitest.config.mts` extended with the Workers pool; `test/apply-migrations.ts`
+
+**What was actually built**: the database, binding, `cf-typegen`, and migration (tasks 1–3, 6–8)
+went exactly to plan. Tasks 4–5 changed shape:
+
+- Before writing any of this, a project skill (`.cursor/skills/testing/SKILL.md`) surfaced that
+  explicitly says to check with the user before introducing `@cloudflare/vitest-plugin`, since it
+  changes how the whole suite runs (its default recommendation is mocking `env.DB` instead). This
+  was raised; the user explicitly chose to proceed with the real Workers runtime anyway.
+- `vitest.config.mts` was **not** extended with the Workers pool — a **separate** file,
+  `vitest.workers.config.mts`, was created instead, because `cloudflareTest()` is a Vite plugin and
+  the plain-Node tier (Phase 2's future `password.test.ts`) has no reason to pay for a workerd
+  runtime. `package.json`'s `"test"` script now runs both tiers in sequence: `"test:unit"` (plain,
+  now scoped to `src/**/*.test.ts` with `passWithNoTests: true` so it doesn't fail before Phase 2
+  exists) then `"test:workers"` (the new config, scoped to `test/**/*.test.ts`).
+- `wrangler.configPath` was **not** used, contrary to the original plan — see the "Known risk"
+  update in Testing Strategy above for why (it tries to load `.open-next/worker.js` as `main`,
+  which doesn't exist under plain `npm run test`). The Workers-pool config instead declares the D1
+  binding directly: `miniflare: { d1Databases: { DB: "ai-sprint-project-test-db" }, compatibilityDate: "2026-07-01", compatibilityFlags: ["nodejs_compat"] }`.
+  This gives each test run its own fresh, isolated D1 (migrations applied by
+  `test/apply-migrations.ts` on every run), fully independent of the "real" local dev D1 that
+  `npm run dev` / `npm run preview` use.
+- `env` from `cloudflare:test` is typed as `Cloudflare.Env` — the same global interface
+  `cloudflare-env.d.ts` (generated by `cf-typegen`) declares — so `env.DB` is correctly typed as
+  `D1Database` for free. The one addition needed was a test-only binding, `TEST_MIGRATIONS`
+  (carries the migrations array from config into the setup file), which doesn't exist in the real
+  app. That's declared via module augmentation in `test/env.d.ts` rather than by hand-editing the
+  generated `cloudflare-env.d.ts`.
+- Test files (`test/**/*.test.ts`) import the ambient `cloudflare:test` module, which `next
+  build`'s typecheck can't resolve — it type-checks every `.ts` file matched by `tsconfig.json`,
+  including tests, and failed with `Cannot find module 'cloudflare:test'` the first time this was
+  tried. Fixed by excluding `test/` and `**/*.test.ts` from the root `tsconfig.json` and adding a
+  sibling `tsconfig.vitest.json` (extends the root config, adds `@cloudflare/vitest-plugin/types`)
+  purely for editor support of test files. See Troubleshooting Guide for the full chain of errors
+  hit while wiring this up.
+- `npm run lint`, `npm run build`, and `npm run test` (both tiers) were all re-verified green after
+  every change described above, not just at the end.
 
 ### Phase 2: Password Hashing Utility - PLANNED
 
@@ -400,15 +444,26 @@ Verified manually via the Acceptance Criteria below instead. Revisit if this pag
 
 ## Technical Implementation Details
 
-**Note**: Implementation has not started. The files and patterns below are the planned approach
-and should be updated to reflect what was actually built as each phase is completed.
+**Note**: Phases 0–1 are implemented (testing infrastructure, D1, and the `users` table). Phases
+2–5 below are still the planned approach and should be updated to reflect what was actually built
+as each phase completes.
 
 ### Key Files
 
-- `vitest.config.mts` - Vitest configuration; extended in Phase 1 with the Workers pool for D1
-- `test/apply-migrations.ts` - test setup file that applies `migrations/` to the local test D1
-- `wrangler.jsonc` - add the `d1_databases` binding named `DB`
-- `migrations/0001_create_users_table.sql` - creates the `users` table
+- `vitest.config.mts` - plain-Node Vitest config (unit tier); scoped to `src/**/*.test.ts`
+- `vitest.workers.config.mts` - **(built in Phase 1, not part of the original plan)** Workers-pool
+  Vitest config (D1 tier); scoped to `test/**/*.test.ts`; declares the `DB` binding directly via
+  `miniflare.d1Databases` rather than reading `wrangler.jsonc`
+- `test/apply-migrations.ts` - test setup file that applies `migrations/` to the test D1 before
+  tests run, via `readD1Migrations()` / `applyD1Migrations()`
+- `test/env.d.ts` - **(built in Phase 1)** module augmentation adding the test-only
+  `TEST_MIGRATIONS` binding to `Cloudflare.Env`, scoped to the test tsconfig only
+- `tsconfig.vitest.json` - **(built in Phase 1)** separate tsconfig for editor support of test
+  files (adds `@cloudflare/vitest-plugin/types`); keeps `cloudflare:test` imports out of the main
+  app's `tsconfig.json` so `next build` never tries to type-check them
+- `wrangler.jsonc` - has the `d1_databases` binding named `DB` (done in Phase 1)
+- `migrations/0001_create_users_table.sql` - creates the `users` table (done in Phase 1)
+- `test/users-table.test.ts` - Phase 1's schema tests (4 tests, all green)
 - `src/lib/password.ts` / `src/lib/password.test.ts` - PBKDF2 hashing/verification via Web Crypto,
   no dependencies
 - `src/lib/services/user-service.ts` / `user-service.test.ts` - the only module allowed to query
@@ -565,8 +620,8 @@ export async function POST(req: Request) {
       error message that does not reveal which part was wrong
 - [ ] `POST /api/auth/logout` returns a success response
 - [ ] Passwords are never stored, logged, or returned in plaintext anywhere in the system
-- [ ] The `users` migration applies cleanly with `npx wrangler d1 migrations apply DB --local`
-- [ ] Duplicate emails and duplicate usernames are both impossible at the database level, not just
+- [x] The `users` migration applies cleanly with `npx wrangler d1 migrations apply DB --local`
+- [x] Duplicate emails and duplicate usernames are both impossible at the database level, not just
       checked in application code
 - [ ] All three route handlers validate input with a Zod schema before touching the database
 - [ ] `/dashboard` renders a placeholder page with no console errors
@@ -612,10 +667,12 @@ This phase has no end users yet, so metrics are engineering checks rather than p
   library is needed — PBKDF2 comes from the Workers-native Web Crypto API.
 - **`vitest`** (dev) - test runner, per explicit instruction. Powers the red/green TDD loop for
   every phase in this PRD.
-- **`@cloudflare/vitest-plugin`** (dev) - Cloudflare's official Workers Vitest integration, used
-  for the D1-backed tests (schema, user service, endpoints) so they run against a real local D1
-  instance instead of a mock. See Testing Strategy for the fallback if this doesn't play well with
-  `@opennextjs/cloudflare`'s tooling.
+- **`@cloudflare/vitest-plugin`** (dev, installed in Phase 1, currently `^1.1.3`) - Cloudflare's
+  official Workers Vitest integration, used for the D1-backed tests (schema, user service,
+  endpoints) so they run against a real local D1 instance instead of a mock. Introducing it was
+  explicitly flagged to the user first, per `.cursor/skills/testing/SKILL.md`; the user confirmed
+  proceeding with the real runtime over the skill's default (mocking). See Testing Strategy for
+  how it's configured to avoid conflicting with `@opennextjs/cloudflare`'s build output.
 
 ### Environment Variables
 
@@ -646,14 +703,15 @@ This phase has no end users yet, so metrics are engineering checks rather than p
   **Mitigation**: Deliberately out of scope here and called out explicitly so it's a known,
   visible gap rather than a surprise — closed by the session-management phase that follows this
   one.
-- **Risk**: `@cloudflare/vitest-plugin`'s workerd-based test pool has been reported to clash with
-  `@opennextjs/cloudflare`'s own tooling in the same project (config and `resolve.external`
-  conflicts).
-  **Mitigation**: Try the real integration first in Phase 1 — it gives the highest-fidelity tests.
-  If it fights the build too much, fall back to a minimal fake covering only the
-  `prepare().bind().all()` surface `user-service.ts` uses, and keep at least one real-local-D1
-  test for the `UNIQUE` constraint behavior specifically, since that's what a hand-rolled fake is
-  most likely to get wrong.
+- **Risk (confirmed in Phase 1)**: `@cloudflare/vitest-plugin`'s workerd-based test pool clashes
+  with `@opennextjs/cloudflare`'s build output specifically when pointed at the real
+  `wrangler.jsonc` — it tries to auto-load `main` (`.open-next/worker.js`), which only exists
+  after an OpenNext build.
+  **Mitigation applied**: don't read bindings from `wrangler.jsonc` for tests that only need the
+  `DB` binding, not the deployed worker. Declare bindings directly via `miniflare.d1Databases` in
+  `vitest.workers.config.mts` instead. No fallback to a hand-rolled fake was needed — the real
+  integration works, just not the way originally planned. See Testing Strategy and Phase 1 for
+  the details, and the Troubleshooting Guide for the exact errors this produced.
 
 ### User Experience Risks
 
@@ -677,6 +735,77 @@ matching how this repo already handles `postcss.config.mjs` / `eslint.config.mjs
 `import.meta.dirname` instead of `__dirname` to build the `@/` alias path. `npm run test` now runs
 with no warnings.
 **Code Reference**: `vitest.config.mts:1-11`
+
+### `cloudflareTest()` tries to load `.open-next/worker.js` and fails
+**Problem**: `npm run test:workers` failed immediately with `Cannot find module
+'...\.open-next\worker.js'`, even though the test only touches D1.
+**Cause**: `vitest.workers.config.mts` originally pointed `wrangler: { configPath: "./wrangler.jsonc" }`
+at the real app config. `cloudflareTest()` auto-loads whatever that config's `main` field points
+to as the Worker entry-point (needed for `SELF`/Durable Object testing) — but `main` is
+`.open-next/worker.js`, a build artifact that doesn't exist under plain `npm run test`.
+**Attempted fix that didn't work**: Cloudflare's current docs mention a `main: false` option to
+suppress this. The installed version, `@cloudflare/vitest-plugin@1.1.3`, doesn't have it yet —
+its `WorkersPoolOptionsSchema` only accepts `main: z.string().optional()` (confirmed by reading
+`node_modules/@cloudflare/vitest-plugin/dist/pool/index.mjs` directly), so passing `main: false`
+throws `Unexpected options ... Invalid input: expected string, received boolean`.
+**Solution**: Don't use `wrangler.configPath` for this test file at all. Declare the binding
+directly under `miniflare` instead:
+```typescript
+miniflare: {
+  compatibilityDate: "2026-07-01",
+  compatibilityFlags: ["nodejs_compat"],
+  d1Databases: { DB: "ai-sprint-project-test-db" },
+  bindings: { TEST_MIGRATIONS: migrations },
+}
+```
+**Code Reference**: `vitest.workers.config.mts:1-20`
+
+### Test files break `next build`'s typecheck
+**Problem**: After the Workers-pool tests were passing, `npm run build` failed at "Running
+TypeScript" with `Cannot find module 'cloudflare:test' or its corresponding type declarations`,
+pointing at `test/apply-migrations.ts`.
+**Cause**: `tsconfig.json`'s `include` is `**/*.ts` — broad enough to cover test files too — so
+`next build`'s typecheck was compiling `test/*.ts` files alongside the app, and nothing in that
+tsconfig knows about the `cloudflare:test` ambient module.
+**Solution**: Excluded `test` and `**/*.test.ts` from the root `tsconfig.json`, and added a
+separate `tsconfig.vitest.json` (extends the root config, adds `"@cloudflare/vitest-plugin/types"`
+to `types`) purely so the editor still type-checks test files correctly. `next build` never sees
+`tsconfig.vitest.json`, so it's unaffected by anything test-only.
+**Code Reference**: `tsconfig.json:36-40`, `tsconfig.vitest.json:1-14`
+
+### `env.DB` typed as `any` after adding `tsconfig.vitest.json`
+**Problem**: Once test files had their own tsconfig, `tsc -p tsconfig.vitest.json` passed but with
+a new error: `Parameter 'row' implicitly has an 'any' type` on a `.map()` callback reading
+`result.results`, even though `.all<{ name: string }>()` was called with an explicit generic.
+**Cause**: `cloudflare:test`'s `env` export is typed as `Cloudflare.Env` — the same global
+namespace `cloudflare-env.d.ts` (generated by `cf-typegen`) augments with the real `DB` binding.
+`tsconfig.vitest.json`'s `compilerOptions.types` **replaced** the base config's `types` array
+instead of merging with it (`extends` does not merge array-valued `compilerOptions` fields), so
+`cloudflare-env.d.ts` was silently dropped from the test program and `Cloudflare.Env` had nothing
+augmenting it.
+**Solution**: Added `cloudflare-env.d.ts` to `tsconfig.vitest.json`'s own `include` array so it's
+part of that program too, alongside `@cloudflare/vitest-plugin/types`.
+**Code Reference**: `tsconfig.vitest.json:7-13`
+
+### `TEST_MIGRATIONS` binding not recognized by TypeScript
+**Problem**: After the fix above, one error remained: `Property 'TEST_MIGRATIONS' does not exist
+on type 'Env'` in `test/apply-migrations.ts`.
+**Cause**: `TEST_MIGRATIONS` is a synthetic binding that exists only inside the Workers-pool test
+config (`miniflare.bindings`) — it's not part of the real app, so `cf-typegen` never generates a
+type for it.
+**Solution**: Added `test/env.d.ts`, a small ambient declaration file that augments the global
+`Cloudflare.Env` interface with `TEST_MIGRATIONS: D1Migration[]` via `declare global { namespace
+Cloudflare { ... } }`. It's picked up automatically by `tsconfig.vitest.json`'s
+`test/**/*.ts` include glob and never reaches the app's tsconfig.
+**Code Reference**: `test/env.d.ts:1-13`
+
+### PowerShell `Select-Object` silently drops output for some commands
+**Problem**: `Get-ChildItem "node_modules/@cloudflare" | Select-Object Name` printed nothing, even
+though the directory clearly exists and `Test-Path` confirmed it.
+**Cause**: Unclear — possibly a formatting/width issue with how this environment's shell tool
+captures PowerShell's table-formatted output for `Select-Object`.
+**Solution**: Use `Get-ChildItem <path> -Name` (plain string output) instead of piping through
+`Select-Object` when listing directory contents in this environment.
 
 ---
 
@@ -709,9 +838,8 @@ with no warnings.
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phase 0 complete (Testing Infrastructure Setup); Phase 1 (Database Setup) not
+**Current Phase**: Phase 1 complete (Database Setup); Phase 2 (Password Hashing Utility) not
 started
 **Status**: IN PROGRESS
-**Next Steps**: Awaiting review of Phase 0 before starting Phase 1 — provision D1 locally, add the
-`d1_databases` binding, and create/apply the `users` table migration together with its schema
-tests.
+**Next Steps**: Awaiting review of Phase 1 before starting Phase 2 — implement `src/lib/password.ts`
+test-first, following the plain-Node unit tier (no Workers pool needed for pure PBKDF2 logic).
