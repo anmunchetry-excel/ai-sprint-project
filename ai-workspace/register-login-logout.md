@@ -1,0 +1,717 @@
+Date created: September 1, 2026
+Date last modified: September 2, 2026
+
+# User Registration, Login, and Logout - Technical PRD
+
+## Overview/Problem
+
+This application lets multiple teachers collaborate on a shared test bank of multiple-choice
+questions. Today there is no concept of a "user" anywhere in the system — no way to tell one
+teacher's work apart from another's, and no way to control who can access the app at all. Every
+other feature (starting with the MCQ test bank itself) depends on knowing who is making a
+request, so a user identity foundation has to exist before anything collaborative can be built.
+
+---
+
+## Hypothesis
+
+We believe that introducing a `users` table plus register, login, and logout endpoints backed by
+a dedicated user service will give every future feature (starting with the MCQ test bank) a
+reliable way to identify a teacher, without yet taking on the cost of session management or a
+frontend.
+
+---
+
+## Scope
+
+### In Scope
+
+- A `users` database table, added via a D1 migration, storing: id, email, username, first name,
+  last name, and a hashed password. Both `email` and `username` are unique.
+- Password hashing before any password value reaches the database. Plaintext passwords are never
+  stored, logged, or returned by any part of the system.
+- A user service (`src/lib/services/user-service.ts`) that centralizes all reads and writes to the
+  `users` table and provides create, read (by id, email, or username), update, delete, and list
+  operations, plus credential verification.
+- `POST /api/auth/register` — creates a new user via the user service.
+- `POST /api/auth/login` — verifies credentials via the user service.
+- `POST /api/auth/logout` — a stateless success response (see Assumptions below).
+- One minimal placeholder page at `/dashboard` that reserves the spot where the MCQ test bank
+  will live. No MCQ logic, no auth gating — just a heading and a short "coming soon" message.
+- A Vitest test suite covering every phase below, written test-first (red) and made to pass
+  (green) as each phase is implemented — see Testing Strategy.
+
+### Out of Scope
+
+Not being built now, but expected to be picked up in a later phase:
+
+- Register / login / logout **UI** — forms, client-side validation, error display. This phase is
+  backend-only aside from the one placeholder page above.
+- Session or token management of any kind — cookies, JWTs, refresh tokens, or any other mechanism
+  for remembering that a user is logged in between requests.
+- Password reset / "forgot password" flow.
+- Email verification.
+- Role-based permissions (e.g., distinguishing an admin from a regular teacher).
+- Rate limiting or brute-force protection on login attempts.
+- All MCQ / test-bank functionality (authoring questions, banks, sharing, collaboration) — this
+  is the very next build after this one.
+- Automated UI/component tests (e.g., React Testing Library) for the Phase 5 placeholder page —
+  it has no logic yet, so manual verification is enough for now.
+
+### Cut
+
+Nothing was cut during planning. Scope was defined narrowly from the outset by explicit product
+direction: build the user data model and the three auth endpoints, and defer sessions, UI, and
+MCQ features to later phases rather than trimming them down mid-planning. Social login was
+likewise never in scope for this phase, so it's listed above as deferred, not cut.
+
+### Assumptions & Interpretation Notes
+
+A few points in the original request were ambiguous and required a judgment call. Flagging them
+here so they're easy to correct:
+
+- **"Users are listed/updated/deleted"** is interpreted as a capability of the **service layer**,
+  not additional HTTP endpoints. `listUsers`, `updateUser`, and `deleteUser` exist on
+  `user-service.ts` for future use (e.g., an admin phase) but only register, login, and logout are
+  wired to a route in this phase.
+- **Logout has nothing to invalidate yet.** Since this phase explicitly excludes sessions/tokens,
+  `POST /api/auth/logout` is a stateless endpoint that returns success immediately. This gives the
+  future frontend a stable route to call now; real invalidation logic gets added when session
+  management ships.
+- **Route Handlers, not Server Actions.** This project's default convention
+  (`.cursor/rules/nextjs.mdc`) prefers Server Actions for form submissions and reserves Route
+  Handlers for cases needing "an HTTP endpoint for an external consumer." There is no form yet in
+  this phase — the frontend is deferred — and these endpoints need to be independently callable
+  (curl/Postman, and eventually the frontend phase), so they're built as Route Handlers under
+  `src/app/api/auth/`.
+- **Column is named `password_hash`, not `password`**, to make it unambiguous at the schema level
+  that plaintext is never stored there.
+- **`username` is a new unique identity field, added alongside `email`**, per a later instruction.
+  It is not (yet) used as a login identifier — login below still uses email + password, since
+  that wasn't asked to change. Wiring username into login as an alternative identifier would be a
+  small, separate follow-up if wanted.
+- **"Task-driven development"** is read as **test-driven development (TDD)** — the rest of the
+  request describes the classic red/green cycle explicitly (tests fail first, then pass as the
+  feature is built), so that's clearly the intent despite the phrasing.
+
+---
+
+## Technical Requirements
+
+### Database Schema
+
+```sql
+CREATE TABLE users (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  email TEXT NOT NULL UNIQUE,
+  username TEXT NOT NULL UNIQUE,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+Notes:
+
+- `email` and `username` both carry a `UNIQUE` constraint — this is the real source of truth for
+  "no duplicate accounts," not an application-level check. The application must normalize both to
+  lowercase before every insert and query, since SQLite's default comparison is case-sensitive.
+- `username` follows the same case-insensitive handling as `email`: normalized to lowercase before
+  storage and lookup. Format validation (length, allowed characters) happens in the Zod schema.
+- `password_hash` stores a self-describing encoded string (see Password Hashing below), never a
+  raw password.
+- `updated_at` has no trigger. The service layer is responsible for setting it explicitly on every
+  update.
+- All access to this table must go through `user-service.ts`. Nothing else should call `env.DB`
+  for user data.
+
+### Password Hashing
+
+Passwords are hashed with **PBKDF2 via the Workers-native Web Crypto API** (`crypto.subtle`) —
+SHA-256, a random 16-byte salt per user, 100,000 iterations. This was chosen over `bcryptjs` and
+Argon2id-via-WASM because it needs zero new dependencies and is guaranteed to run within Cloudflare
+Workers' CPU-time limits. The trade-off: Cloudflare currently caps PBKDF2 at 100,000 iterations in
+production, below the 600,000 OWASP recommends for PBKDF2-SHA-256 today. The iteration count is
+embedded in the stored value so it can be raised later without invalidating existing rows:
+
+```
+pbkdf2$<iterations>$<saltHex>$<hashHex>
+```
+
+### API Endpoints
+
+#### POST /api/auth/register
+
+**Request Body:**
+```json
+{
+  "email": "teacher@example.com",
+  "username": "adalovelace",
+  "firstName": "Ada",
+  "lastName": "Lovelace",
+  "password": "at-least-8-characters"
+}
+```
+
+**Response:**
+- Success (201):
+  ```json
+  { "user": { "id": "...", "email": "teacher@example.com", "username": "adalovelace", "firstName": "Ada", "lastName": "Lovelace", "createdAt": "..." } }
+  ```
+- Error (400): validation failure (bad email format, invalid username format, password under 8
+  characters, missing name)
+- Error (409): email or username already registered — response includes which field conflicted,
+  e.g. `{ "error": { "message": "Email already registered", "field": "email" } }`
+- Error (500): unexpected server/database error
+
+#### POST /api/auth/login
+
+**Request Body:**
+```json
+{
+  "email": "teacher@example.com",
+  "password": "at-least-8-characters"
+}
+```
+
+**Response:**
+- Success (200):
+  ```json
+  { "user": { "id": "...", "email": "teacher@example.com", "username": "adalovelace", "firstName": "Ada", "lastName": "Lovelace" } }
+  ```
+- Error (400): validation failure (missing email or password)
+- Error (401): invalid email or password — intentionally generic, does not reveal which field was
+  wrong or whether the email exists, to avoid user enumeration
+- Error (500): unexpected server/database error
+
+Note: login is by **email** only in this phase. `username` is stored and returned but not yet
+accepted as an alternative login identifier — see Assumptions above.
+
+#### POST /api/auth/logout
+
+**Request Body:** none
+
+**Response:**
+- Success (200): `{ "success": true }`
+- This is a stateless no-op in this phase — see Assumptions above. There is no failure case yet
+  because there is no session state to fail to clear.
+
+### User Interface Requirements
+
+#### Placeholder Dashboard Page (`/dashboard`)
+
+- Server component, no client interactivity, no data fetching.
+- Displays a heading and one line of copy indicating the MCQ test bank is coming soon.
+- No authentication gating — there is no session mechanism yet to gate with.
+- No links to or from this page are required yet; it exists solely to reserve the route.
+
+---
+
+## Testing Strategy (Test-Driven Development)
+
+**Workflow**: every phase below follows red → green. Before writing any implementation code for a
+phase, write its tests first and run them to confirm they fail — and confirm they fail for the
+right reason (missing code), not a typo in the test itself. Only implement once the failing tests
+exist. A phase is not done until both its tests pass **and** its Acceptance Criteria are checked.
+
+**Framework**: [Vitest](https://vitest.dev), per explicit instruction. Test files are colocated
+with the code they test as `*.test.ts` (e.g. `src/lib/password.ts` → `src/lib/password.test.ts`) —
+Vitest's default discovery pattern, so no extra config is needed to find them.
+
+**Two tiers of tests**:
+
+1. **Plain unit tests** — pure logic with no Cloudflare bindings: `src/lib/password.ts` and
+   `src/lib/schemas/auth.ts`. These run under Vitest's default Node environment with no special
+   setup.
+2. **Workers-runtime tests** — anything touching D1 (the `users` table schema, `user-service.ts`,
+   the route handlers). These run through Cloudflare's official Workers Vitest integration —
+   `@cloudflare/vitest-plugin` (the current package name; older docs and examples call it
+   `@cloudflare/vitest-pool-workers`) — which executes tests inside the real Workers runtime
+   (workerd) against a local D1 instance with this project's actual migrations applied via
+   `readD1Migrations()` / `applyD1Migrations()`. This exercises the real schema, including the
+   `UNIQUE` constraints, instead of a hand-rolled mock that could quietly drift from reality.
+
+**Design change this requires**: `user-service.ts` functions must accept the D1 binding as a
+parameter (e.g. `createUser(db: D1Database, input)`) rather than calling `getCloudflareContext()`
+internally. Only the route handlers call `getCloudflareContext()` — once each — and pass `env.DB`
+down into the service. This is what makes the service trivially testable: a test can hand it the
+real local D1 instance from the Workers pool, or a fake, without needing any request context. See
+the updated code samples under Technical Implementation Details.
+
+**New dev dependencies**: `vitest`, `@cloudflare/vitest-plugin`. New `package.json` scripts:
+`"test": "vitest run"` and `"test:watch": "vitest"`.
+
+**Known risk**: community reports describe `@cloudflare/vitest-plugin`'s workerd-based test pool
+occasionally clashing with `@opennextjs/cloudflare`'s own Vite/Wrangler tooling in the same project
+(config and `resolve.external` conflicts). Try the real integration first in Phase 1 — it gives
+the highest-fidelity tests. If it fights the build too much, fall back to a minimal fake that
+implements only the `prepare().bind().all()` surface `user-service.ts` actually uses. That fallback
+loses real enforcement of the `UNIQUE` constraints, so keep at least one real-local-D1 test for
+that specific behavior even if the rest of the suite falls back to the fake.
+
+---
+
+## Implementation Phases
+
+### Phase 0: Testing Infrastructure Setup - COMPLETED
+
+**Objective**: Stand up Vitest so every phase below can follow red-green TDD.
+
+**Tasks**:
+1. Add `vitest` as a dev dependency
+2. Add `vitest.config.mts` using Vitest's default Node environment
+3. Add `"test": "vitest run"` and `"test:watch": "vitest"` to `package.json` scripts
+4. Write one throwaway smoke test (e.g. `expect(1 + 1).toBe(2)`) to confirm the runner works, then
+   delete it
+
+**Deliverables**:
+- `vitest.config.mts`
+- Updated `package.json` scripts
+- No leftover smoke test
+
+**What was actually built**: exactly the above, plus one adjustment — the config file is
+`vitest.config.mts`, not `.ts`. It also pre-configures the `@/` → `./src` path alias (mirroring
+`tsconfig.json`) since later phases' tests will need it and it costs nothing to add now. `npm run
+lint` and `npm run build` were both re-verified after these changes and still pass. `npm run test`
+currently exits 1 with "No test files found" — expected and correct until Phase 1/2 add real
+tests; not a failure.
+
+### Phase 1: Database Setup - PLANNED
+
+**Objective**: Provision Cloudflare D1 and create the `users` table.
+
+**Tests (write first)**:
+- A schema test (via the Workers pool — see Testing Strategy) that, once migrations are applied,
+  asserts:
+  - the `users` table exists with the expected columns
+  - inserting a valid row succeeds and `id`/`created_at`/`updated_at` are populated
+  - inserting a second row with a duplicate `email` is rejected
+  - inserting a second row with a duplicate `username` is rejected
+- This test is red from the start for infrastructure reasons (no binding, no migration yet) and
+  should stay red until every task below is done — both kinds of failure are valid "red."
+
+**Tasks** (make the tests above pass):
+1. Create the database: `npx wrangler d1 create ai-sprint-project-db`
+2. Add the returned `d1_databases` block to `wrangler.jsonc` with binding name `DB`
+3. Run `npm run cf-typegen` to regenerate `cloudflare-env.d.ts`
+4. Add `@cloudflare/vitest-plugin` as a dev dependency and extend `vitest.config.mts` with the
+   Workers pool, pointed at `wrangler.jsonc`
+5. Add a test setup file (`test/apply-migrations.ts`) that reads `migrations/` via
+   `readD1Migrations()` and applies it via `applyD1Migrations()` before tests run
+6. Create the migration: `npx wrangler d1 migrations create DB create_users_table`
+7. Write the `CREATE TABLE users (...)` statement (above) into the generated migration file
+8. Apply it locally only: `npx wrangler d1 migrations apply DB --local`
+
+**Deliverables**:
+- `wrangler.jsonc` updated with the `DB` binding
+- `migrations/0001_create_users_table.sql`
+- Regenerated `cloudflare-env.d.ts` (generated file — do not hand-edit)
+- `vitest.config.mts` extended with the Workers pool; `test/apply-migrations.ts`
+
+### Phase 2: Password Hashing Utility - PLANNED
+
+**Objective**: A small, dependency-free module for hashing and verifying passwords.
+
+**Tests (write first)**, in `src/lib/password.test.ts` (plain unit tests, no bindings needed):
+- `hashPassword` returns a string in the `pbkdf2$iterations$salt$hash` format
+- `verifyPassword` resolves `true` for the correct password against its own hash
+- `verifyPassword` resolves `false` for an incorrect password
+- Two hashes of the same password differ (random salt per call)
+- `verifyPassword` resolves `false` for a malformed/unrecognized stored value, rather than throwing
+
+**Tasks** (make the tests above pass):
+1. Create `src/lib/password.ts` exporting `hashPassword(plainPassword)` and
+   `verifyPassword(plainPassword, storedHash)`
+2. Implement using `crypto.subtle` PBKDF2 (SHA-256, 100,000 iterations, random 16-byte salt)
+3. Encode/decode the `pbkdf2$<iterations>$<saltHex>$<hashHex>` format described above
+4. Use a constant-time comparison when checking the derived hash against the stored one
+
+**Deliverables**:
+- `src/lib/password.ts`
+- `src/lib/password.test.ts`, all green
+
+### Phase 3: User Service - PLANNED
+
+**Objective**: One module that owns all reads and writes to the `users` table.
+
+**Tests (write first)**, in `src/lib/services/user-service.test.ts` (Workers pool, real local D1
+from Phase 1, migrations already applied):
+- `createUser` stores a hashed password — the raw password never appears in the stored row
+- `createUser` rejects a duplicate `email` with a typed, identifiable error
+- `createUser` rejects a duplicate `username` with a typed, identifiable error
+- `getUserByEmail` and `getUserByUsername` find the row `createUser` just made, case-insensitively
+- `verifyCredentials` returns the user for correct credentials
+- `verifyCredentials` returns `null` for a wrong password, and for an unknown email
+- No method that returns a "public" user shape includes `password_hash`
+
+**Tasks** (make the tests above pass):
+1. Create `src/lib/services/user-service.ts`
+2. Implement `createUser`, `getUserById`, `getUserByEmail`, `getUserByUsername`, `updateUser`,
+   `deleteUser`, `listUsers`, and `verifyCredentials` — each taking `db: D1Database` as its first
+   parameter (see Testing Strategy) rather than calling `getCloudflareContext()` itself
+3. Normalize email and username to lowercase on every read and write
+4. Ensure every method that returns a "public" user shape omits `password_hash`
+5. Translate the D1 `UNIQUE constraint failed` error into a typed error the register endpoint can
+   map to 409, identifying whether `email` or `username` caused the conflict
+
+**Deliverables**:
+- `src/lib/services/user-service.ts`
+- `src/lib/services/user-service.test.ts`, all green
+
+### Phase 4: Auth Endpoints - PLANNED
+
+**Objective**: Expose register, login, and logout over HTTP.
+
+**Tests (write first)**, in `src/app/api/auth/*/route.test.ts` (Workers pool; call the exported
+`POST` functions directly with constructed `Request` objects):
+- register: 201 + public user on valid input; 400 on invalid email, invalid username format, or a
+  password under 8 characters; 409 on a duplicate email; 409 on a duplicate username
+- login: 200 + public user on correct credentials; 401 on a wrong password; 401 on an unknown
+  email; 400 on missing fields
+- logout: 200 + `{ "success": true }` on any call
+
+**Tasks** (make the tests above pass):
+1. Create `src/lib/schemas/auth.ts` with Zod schemas `registerSchema` and `loginSchema`
+2. Create `src/app/api/auth/register/route.ts`
+3. Create `src/app/api/auth/login/route.ts`
+4. Create `src/app/api/auth/logout/route.ts`
+
+**Deliverables**:
+- Three route handlers, each validating input with Zod before calling the user service
+- Matching `route.test.ts` files, all green
+
+### Phase 5: MCQ Placeholder Page - PLANNED
+
+**Objective**: Reserve the landing spot for the next build.
+
+**Tests**: none automated. The page has no logic — a heading and a line of static copy — so an
+automated test would only add a dependency (e.g. React Testing Library) for very little value.
+Verified manually via the Acceptance Criteria below instead. Revisit if this page grows logic.
+
+**Tasks**:
+1. Create `src/app/dashboard/page.tsx` with a heading and "coming soon" copy
+
+**Deliverables**:
+- `src/app/dashboard/page.tsx`
+
+---
+
+## Technical Implementation Details
+
+**Note**: Implementation has not started. The files and patterns below are the planned approach
+and should be updated to reflect what was actually built as each phase is completed.
+
+### Key Files
+
+- `vitest.config.mts` - Vitest configuration; extended in Phase 1 with the Workers pool for D1
+- `test/apply-migrations.ts` - test setup file that applies `migrations/` to the local test D1
+- `wrangler.jsonc` - add the `d1_databases` binding named `DB`
+- `migrations/0001_create_users_table.sql` - creates the `users` table
+- `src/lib/password.ts` / `src/lib/password.test.ts` - PBKDF2 hashing/verification via Web Crypto,
+  no dependencies
+- `src/lib/services/user-service.ts` / `user-service.test.ts` - the only module allowed to query
+  `users`; CRUD + credential verification, takes `db: D1Database` as a parameter
+- `src/lib/schemas/auth.ts` - Zod request schemas shared by the route handlers
+- `src/app/api/auth/register/route.ts` (+ `route.test.ts`) - POST handler for registration
+- `src/app/api/auth/login/route.ts` (+ `route.test.ts`) - POST handler for login
+- `src/app/api/auth/logout/route.ts` (+ `route.test.ts`) - POST handler, stateless
+- `src/app/dashboard/page.tsx` - placeholder landing page for the MCQ test bank
+
+### Implementation Patterns
+
+Request validation (`src/lib/schemas/auth.ts`):
+
+```typescript
+export const registerSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  username: z.string().trim().toLowerCase().min(3).max(30).regex(/^[a-z0-9_-]+$/),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
+  password: z.string().min(8).max(72),
+});
+
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1),
+});
+```
+
+Password hashing (`src/lib/password.ts`):
+
+```typescript
+const ITERATIONS = 100_000;
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const hash = await derive(password, salt, ITERATIONS);
+  return `pbkdf2$${ITERATIONS}$${toHex(salt)}$${toHex(hash)}`;
+}
+
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const [algo, iterations, saltHex, hashHex] = stored.split("$");
+  if (algo !== "pbkdf2") return false;
+  const derived = await derive(password, fromHex(saltHex), Number(iterations));
+  return timingSafeEqual(derived, fromHex(hashHex));
+}
+
+async function derive(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    keyMaterial,
+    256
+  );
+  return new Uint8Array(bits);
+}
+```
+
+A matching test, written before the implementation above existed (`src/lib/password.test.ts`):
+
+```typescript
+import { describe, expect, it } from "vitest";
+import { hashPassword, verifyPassword } from "./password";
+
+describe("password hashing", () => {
+  it("verifies the correct password against its own hash", async () => {
+    const hash = await hashPassword("correct-horse-battery-staple");
+    await expect(verifyPassword("correct-horse-battery-staple", hash)).resolves.toBe(true);
+  });
+
+  it("rejects an incorrect password", async () => {
+    const hash = await hashPassword("correct-horse-battery-staple");
+    await expect(verifyPassword("wrong-password", hash)).resolves.toBe(false);
+  });
+});
+```
+
+D1 access (`src/lib/services/user-service.ts`), following `.cursor/rules/d1.mdc` — takes `db` as a
+parameter instead of fetching it, so tests can supply their own:
+
+```typescript
+export async function getUserByEmail(db: D1Database, email: string) {
+  const result = await db
+    .prepare("SELECT * FROM users WHERE email = ?1")
+    .bind(email.toLowerCase())
+    .all();
+  return result.results[0] ?? null;
+}
+```
+
+Route handler (`src/app/api/auth/register/route.ts`) — the only place that calls
+`getCloudflareContext()`:
+
+```typescript
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { registerSchema } from "@/lib/schemas/auth";
+import { createUser, EmailAlreadyExistsError } from "@/lib/services/user-service";
+
+export async function POST(req: Request) {
+  const parsed = registerSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return Response.json({ error: { message: "Invalid input", issues: parsed.error.issues } }, { status: 400 });
+  }
+
+  const { env } = await getCloudflareContext({ async: true });
+
+  try {
+    const user = await createUser(env.DB, parsed.data);
+    return Response.json({ user }, { status: 201 });
+  } catch (err) {
+    if (err instanceof EmailAlreadyExistsError) {
+      return Response.json(
+        { error: { message: `${err.field} already registered`, field: err.field } },
+        { status: 409 }
+      );
+    }
+    return Response.json({ error: { message: "Something went wrong" } }, { status: 500 });
+  }
+}
+```
+
+### Important Notes
+
+- Never log a password or a `password_hash` value, even at debug level.
+- Every `users` query must use numbered placeholders (`?1`, `?2`, ...) and read
+  `result.results[0]` rather than `.first()`, per `.cursor/rules/d1.mdc`.
+- Email and username are normalized to lowercase in the service layer, not the database — the
+  `UNIQUE` constraints only work correctly if every write goes through `user-service.ts`.
+- The register endpoint must handle the D1 unique-constraint error as the authoritative duplicate
+  check for both `email` and `username`, not just pre-flight lookups (race condition otherwise).
+- `user-service.ts` takes `db: D1Database` as an explicit parameter on every function instead of
+  calling `getCloudflareContext()` itself — that call happens exactly once, in each route handler.
+  This is what makes the service testable without a request context.
+
+---
+
+## Acceptance Criteria
+
+- [ ] `POST /api/auth/register` creates a user with a hashed password and returns the public user
+      fields (no password or hash) on success
+- [ ] Registering with an email that already exists returns 409 and does not create a duplicate row
+- [ ] Registering with a username that already exists returns 409 and does not create a duplicate
+      row
+- [ ] Registering with invalid input (bad email format, invalid username format, password under 8
+      characters, missing first/last name) returns 400 with field-level detail
+- [ ] `POST /api/auth/login` with correct credentials returns the public user fields
+- [ ] `POST /api/auth/login` with a wrong password or unknown email returns 401 with a generic
+      error message that does not reveal which part was wrong
+- [ ] `POST /api/auth/logout` returns a success response
+- [ ] Passwords are never stored, logged, or returned in plaintext anywhere in the system
+- [ ] The `users` migration applies cleanly with `npx wrangler d1 migrations apply DB --local`
+- [ ] Duplicate emails and duplicate usernames are both impossible at the database level, not just
+      checked in application code
+- [ ] All three route handlers validate input with a Zod schema before touching the database
+- [ ] `/dashboard` renders a placeholder page with no console errors
+- [ ] Every phase above has a Vitest test file that was written and observed failing (red) before
+      that phase's implementation existed, and passing (green) after
+- [ ] `npm run test` passes with zero failures before this PRD is marked complete
+- [ ] The D1-backed tests (schema, user service, endpoints) run against a real local D1 instance
+      with this project's actual migrations applied, not a hand-rolled mock
+
+---
+
+## Success Metrics
+
+This phase has no end users yet, so metrics are engineering checks rather than product outcomes:
+
+| Metric | Target | How Measured |
+|--------|--------|---------------|
+| Acceptance criteria pass rate | 100% | Manually verify each checkbox above before marking this PRD complete |
+| Test suite result | 0 failures | `npm run test` exit code 0 |
+| Plaintext passwords at rest | 0 | Inspect `users.password_hash` via `wrangler d1 execute ... --local`; every value matches the `pbkdf2$...` format |
+| Duplicate emails in `users` | 0 | `SELECT email, COUNT(*) FROM users GROUP BY email HAVING COUNT(*) > 1` returns no rows |
+| Duplicate usernames in `users` | 0 | `SELECT username, COUNT(*) FROM users GROUP BY username HAVING COUNT(*) > 1` returns no rows |
+| Local migration apply | Exit code 0 | `npx wrangler d1 migrations apply DB --local` |
+
+---
+
+## Dependencies
+
+### External Dependencies
+
+- **Cloudflare D1** - primary datastore for the `users` table. Not yet provisioned in this
+  project; provisioning it is Phase 1 of this PRD.
+
+### Internal Dependencies
+
+- None. This is the first backend feature in the project.
+
+### New npm Dependencies
+
+- **`zod`** - request validation in the route handlers. This is already the documented
+  convention for this project (`.cursor/rules/nextjs.mdc`: "Validate all Server Action and route
+  handler input with a Zod schema before use"); it just isn't installed yet. No password-hashing
+  library is needed — PBKDF2 comes from the Workers-native Web Crypto API.
+- **`vitest`** (dev) - test runner, per explicit instruction. Powers the red/green TDD loop for
+  every phase in this PRD.
+- **`@cloudflare/vitest-plugin`** (dev) - Cloudflare's official Workers Vitest integration, used
+  for the D1-backed tests (schema, user service, endpoints) so they run against a real local D1
+  instance instead of a mock. See Testing Strategy for the fallback if this doesn't play well with
+  `@opennextjs/cloudflare`'s tooling.
+
+### Environment Variables
+
+- None required. PBKDF2 needs no secret key, only the plaintext password and a per-user random
+  salt stored alongside the hash.
+
+---
+
+## Risks and Mitigation
+
+### Technical Risks
+
+- **Risk**: D1 is not configured anywhere in this project yet.
+  **Mitigation**: Phase 1 provisions it from scratch following `.cursor/rules/d1.mdc` exactly
+  (create → bind → `cf-typegen` → migrate). Migrations are only ever applied with `--local`, per
+  `AGENTS.md`.
+- **Risk**: Cloudflare caps PBKDF2 at 100,000 iterations in production, below current OWASP
+  guidance.
+  **Mitigation**: Accepted trade-off for this phase. The iteration count is embedded in the stored
+  hash, so it can be increased later and existing rows still verify correctly (and can be
+  re-hashed opportunistically on next login).
+- **Risk**: Two simultaneous registrations with the same email could both pass an
+  application-level existence check before either row is written.
+  **Mitigation**: The database `UNIQUE` constraint is the real guard. The service must catch the
+  constraint-violation error from D1 and map it to 409, not rely solely on a prior `SELECT`.
+- **Risk**: Without any session or token, the future frontend has no way to know a user stays
+  authenticated after login.
+  **Mitigation**: Deliberately out of scope here and called out explicitly so it's a known,
+  visible gap rather than a surprise — closed by the session-management phase that follows this
+  one.
+- **Risk**: `@cloudflare/vitest-plugin`'s workerd-based test pool has been reported to clash with
+  `@opennextjs/cloudflare`'s own tooling in the same project (config and `resolve.external`
+  conflicts).
+  **Mitigation**: Try the real integration first in Phase 1 — it gives the highest-fidelity tests.
+  If it fights the build too much, fall back to a minimal fake covering only the
+  `prepare().bind().all()` surface `user-service.ts` uses, and keep at least one real-local-D1
+  test for the `UNIQUE` constraint behavior specifically, since that's what a hand-rolled fake is
+  most likely to get wrong.
+
+### User Experience Risks
+
+- **Risk**: The generic "invalid email or password" message on login is correct security practice
+  but can read as unhelpful once a UI exists.
+  **Mitigation**: Defer copy/UX refinement to the frontend phase; the API contract should stay
+  generic even after a UI is built on top of it.
+
+---
+
+## Troubleshooting Guide
+
+### Vitest config warnings about `configLoader: 'native'`
+**Problem**: `npm run test` printed a warning about ESM syntax being loaded as CommonJS, and after
+fixing that, a second warning about `__dirname` being unsupported.
+**Cause**: `package.json` has no `"type": "module"`, so a plain `vitest.config.ts` using `import`
+gets loaded as CommonJS by Vite's newer native config loader; and `__dirname` is a CommonJS
+global that doesn't exist in an ESM file.
+**Solution**: Named the file `vitest.config.mts` (forces ESM regardless of `package.json`,
+matching how this repo already handles `postcss.config.mjs` / `eslint.config.mjs`), and used
+`import.meta.dirname` instead of `__dirname` to build the `@/` alias path. `npm run test` now runs
+with no warnings.
+**Code Reference**: `vitest.config.mts:1-11`
+
+---
+
+## Notes for AI Agents
+
+**Instructions for AI**: When working with this PRD:
+1. Start by reading the Problem and Hypothesis to understand intent
+2. Use Scope (In/Out/Cut) to determine boundaries — do not build out-of-scope items
+3. Update phase status markers as work progresses
+4. Add implementation details under "Technical Implementation Details" as code is written
+5. Mark acceptance criteria as complete when features work
+6. Add troubleshooting entries when bugs are found and fixed
+7. Keep all sections current - remove outdated information
+8. Use code references format: `filepath:line-number` when citing code
+
+**Specific to this PRD**:
+- Follow TDD strictly: for each phase, write and run its tests first, confirm they fail for the
+  right reason, then implement until green. Do not write implementation code before its test
+  exists.
+- Run `npm run test` before checking off any Acceptance Criteria or marking a phase COMPLETED.
+- Do not add session, cookie, or token logic even if it feels like a natural next step — that
+  belongs to a future PRD.
+- Do not build MCQ/test-bank functionality beyond the single placeholder page in Phase 5.
+- All `users` table access must go through `src/lib/services/user-service.ts`. Never call
+  `env.DB` for user data from a route handler or component directly.
+- Never apply a migration with `--remote`.
+
+---
+
+## Current Status
+
+**Last Updated**: September 2, 2026
+**Current Phase**: Phase 0 complete (Testing Infrastructure Setup); Phase 1 (Database Setup) not
+started
+**Status**: IN PROGRESS
+**Next Steps**: Awaiting review of Phase 0 before starting Phase 1 — provision D1 locally, add the
+`d1_databases` binding, and create/apply the `users` table migration together with its schema
+tests.
