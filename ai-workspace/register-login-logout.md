@@ -354,7 +354,7 @@ went exactly to plan. Tasks 4–5 changed shape:
 - `npm run lint`, `npm run build`, and `npm run test` (both tiers) were all re-verified green after
   every change described above, not just at the end.
 
-### Phase 2: Password Hashing Utility - PLANNED
+### Phase 2: Password Hashing Utility - COMPLETED
 
 **Objective**: A small, dependency-free module for hashing and verifying passwords.
 
@@ -375,6 +375,17 @@ went exactly to plan. Tasks 4–5 changed shape:
 **Deliverables**:
 - `src/lib/password.ts`
 - `src/lib/password.test.ts`, all green
+
+**What was actually built**: exactly the above. Tests were written first and confirmed red
+(`Cannot find module './password'`), then `src/lib/password.ts` was added. One test bug surfaced
+during green: the format regex used unescaped `$` (regex end-anchor) instead of `\$` (literal
+delimiter) — fixed in the test, not the implementation. One build-time TypeScript error also
+surfaced: `next build`'s stricter check rejected passing a `Uint8Array` directly as the PBKDF2
+`salt` in `deriveBits()` (`Uint8Array<ArrayBufferLike>` vs `BufferSource`); fixed by wrapping with
+`new Uint8Array(salt)` at the call site. Constant-time comparison is a hand-rolled XOR loop (no
+`node:crypto` import), so the module stays dependency-free and works the same in Node unit tests
+and the Workers runtime. `npm run test` (5 unit + 4 workers), `npm run lint`, and `npm run build`
+all pass.
 
 ### Phase 3: User Service - PLANNED
 
@@ -444,9 +455,9 @@ Verified manually via the Acceptance Criteria below instead. Revisit if this pag
 
 ## Technical Implementation Details
 
-**Note**: Phases 0–1 are implemented (testing infrastructure, D1, and the `users` table). Phases
-2–5 below are still the planned approach and should be updated to reflect what was actually built
-as each phase completes.
+**Note**: Phases 0–2 are implemented (testing infrastructure, D1/`users` table, and password
+hashing). Phases 3–5 below are still the planned approach and should be updated to reflect what
+was actually built as each phase completes.
 
 ### Key Files
 
@@ -465,7 +476,7 @@ as each phase completes.
 - `migrations/0001_create_users_table.sql` - creates the `users` table (done in Phase 1)
 - `test/users-table.test.ts` - Phase 1's schema tests (4 tests, all green)
 - `src/lib/password.ts` / `src/lib/password.test.ts` - PBKDF2 hashing/verification via Web Crypto,
-  no dependencies
+  no dependencies (done in Phase 2; 5 unit tests, all green)
 - `src/lib/services/user-service.ts` / `user-service.test.ts` - the only module allowed to query
   `users`; CRUD + credential verification, takes `db: D1Database` as a parameter
 - `src/lib/schemas/auth.ts` - Zod request schemas shared by the route handlers
@@ -799,6 +810,17 @@ Cloudflare { ... } }`. It's picked up automatically by `tsconfig.vitest.json`'s
 `test/**/*.ts` include glob and never reaches the app's tsconfig.
 **Code Reference**: `test/env.d.ts:1-13`
 
+### `deriveBits()` salt parameter fails `next build` typecheck
+**Problem**: `npm run build` failed with `Type 'Uint8Array<ArrayBufferLike>' is not assignable to
+type 'BufferSource'` on the `salt` field passed to `crypto.subtle.deriveBits()` in
+`src/lib/password.ts`.
+**Cause**: Vitest's Node environment accepted the `Uint8Array` parameter without complaint, but
+`next build`'s TypeScript pass uses stricter DOM/lib typings where `Uint8Array`'s generic buffer
+type doesn't satisfy `BufferSource`.
+**Solution**: Wrap the salt at the call site: `salt: new Uint8Array(salt)` inside the `deriveBits`
+options object. Behavior is unchanged; the copy satisfies the type checker.
+**Code Reference**: `src/lib/password.ts:37-40`
+
 ### PowerShell `Select-Object` silently drops output for some commands
 **Problem**: `Get-ChildItem "node_modules/@cloudflare" | Select-Object Name` printed nothing, even
 though the directory clearly exists and `Test-Path` confirmed it.
@@ -838,8 +860,9 @@ captures PowerShell's table-formatted output for `Select-Object`.
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phase 1 complete (Database Setup); Phase 2 (Password Hashing Utility) not
+**Current Phase**: Phase 2 complete (Password Hashing Utility); Phase 3 (User Service) not
 started
 **Status**: IN PROGRESS
-**Next Steps**: Awaiting review of Phase 1 before starting Phase 2 — implement `src/lib/password.ts`
-test-first, following the plain-Node unit tier (no Workers pool needed for pure PBKDF2 logic).
+**Next Steps**: Awaiting review of Phase 2 before starting Phase 3 — implement
+`src/lib/services/user-service.ts` test-first, using the Workers-pool tier and the password module
+from this phase.
