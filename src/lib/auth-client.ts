@@ -36,6 +36,8 @@ export type LoginResult =
 	| { ok: false; kind: "unauthorized"; message: string }
 	| { ok: false; kind: "server"; message: string };
 
+export type LogoutResult = { ok: true } | { ok: false; kind: "server"; message: string };
+
 export async function registerUser(input: RegisterInput): Promise<RegisterResult> {
 	const parsed = registerSchema.safeParse(input);
 	if (!parsed.success) {
@@ -103,6 +105,21 @@ export async function loginUser(input: LoginInput): Promise<LoginResult> {
 			kind: "unauthorized",
 			message: body.error?.message ?? "Invalid email or password",
 		};
+	}
+
+	return {
+		ok: false,
+		kind: "server",
+		message: body.error?.message ?? "Something went wrong",
+	};
+}
+
+export async function logoutUser(): Promise<LogoutResult> {
+	const response = await fetch("/api/auth/logout", { method: "POST" });
+	const body = (await response.json()) as ApiErrorBody;
+
+	if (response.ok) {
+		return { ok: true };
 	}
 
 	return {

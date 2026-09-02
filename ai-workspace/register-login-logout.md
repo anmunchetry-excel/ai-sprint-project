@@ -1,5 +1,5 @@
 Date created: September 1, 2026
-Date last modified: September 2, 2026 (Phase 5 — Registration & Login UI added)
+Date last modified: September 2, 2026 (Phase 7 — Dashboard logout UI)
 
 # User Registration, Login, and Logout - Technical PRD
 
@@ -42,7 +42,8 @@ taking on the cost of session management or persistent login state.
 - **Login page** at `/login` — a form that collects email and password, calls
   `POST /api/auth/login`, and shows a generic error on failure.
 - One minimal placeholder page at `/dashboard` that reserves the spot where the MCQ test bank
-  will live. No MCQ logic, no auth gating — just a heading and a short "coming soon" message.
+  will live. No MCQ logic, no auth gating — a heading, a short "coming soon" message, and a
+  **logout button** that calls `POST /api/auth/logout` and redirects to `/login`.
 - A Vitest test suite covering every phase below, written test-first (red) and made to pass
   (green) as each phase is implemented — see Testing Strategy.
 
@@ -50,8 +51,6 @@ taking on the cost of session management or persistent login state.
 
 Not being built now, but expected to be picked up in a later phase:
 
-- **Logout UI** — a button or link that calls `POST /api/auth/logout`. The API exists; a visible
-  control is deferred until session management makes logout meaningful.
 - Session or token management of any kind — cookies, JWTs, refresh tokens, or any other mechanism
   for remembering that a user is logged in between requests. Successful login/register redirects
   to `/dashboard`, but nothing persists "who is logged in" across page loads or tabs.
@@ -81,10 +80,10 @@ here so they're easy to correct:
   not additional HTTP endpoints. `listUsers`, `updateUser`, and `deleteUser` exist on
   `user-service.ts` for future use (e.g., an admin phase) but only register, login, and logout are
   wired to a route in this phase.
-- **Logout has nothing to invalidate yet.** Since this phase explicitly excludes sessions/tokens,
-  `POST /api/auth/logout` is a stateless endpoint that returns success immediately. This gives the
-  future frontend a stable route to call now; real invalidation logic gets added when session
-  management ships.
+- **Logout UI is stateless.** Phase 7 adds a visible logout button on `/dashboard` that calls
+  `POST /api/auth/logout` and redirects to `/login`. Without sessions/tokens (still out of scope),
+  logout does not invalidate server-side state or prevent revisiting `/dashboard` directly — it is
+  a UX affordance wiring the existing API, not persistent sign-out.
 - **Route Handlers for the API; client `fetch` for the UI.** Phases 0–4 built the auth API as
   Route Handlers under `src/app/api/auth/` so endpoints stay independently callable (curl,
   Postman, tests). Phase 5's register and login **pages** are client components that call those
@@ -103,6 +102,11 @@ here so they're easy to correct:
 - **"Task-driven development"** is read as **test-driven development (TDD)** — the rest of the
   request describes the classic red/green cycle explicitly (tests fail first, then pass as the
   feature is built), so that's clearly the intent despite the phrasing.
+- **Cloudflare deployment is manual.** After each implementation phase, the developer deploys to
+  Cloudflare Workers themselves (`npm run deploy` or equivalent CI). AI agents working in this repo
+  do not run deploy unless explicitly asked (`AGENTS.md`). Local verification uses `npm run dev`,
+  `npm run build`, and `npm run preview`; production rollout is a separate, human-driven step
+  documented per phase below.
 
 ---
 
@@ -241,13 +245,15 @@ accepted as an alternative login identifier — see Assumptions above.
 - **On 400**: display field errors from `error.issues`.
 - Include a link to `/register` for new users.
 
-#### Placeholder Dashboard Page (`/dashboard`) — Phase 6
+#### Placeholder Dashboard Page (`/dashboard`) — Phase 6 + Phase 7
 
-- Server component, no client interactivity, no data fetching.
+- Server page shell with a client **logout button** in the header (Phase 7).
 - Displays a heading and one line of copy indicating the MCQ test bank is coming soon.
 - No authentication gating — there is no session mechanism yet to gate with.
-- Phase 5 redirects here after successful register/login; no logout control or "logged in as …"
-  display until session management ships.
+- Phase 5 redirects here after successful register/login.
+- **Logout button** (Phase 7): calls `POST /api/auth/logout` via `logoutUser()` in
+  `auth-client.ts`; on success redirects to `/login`. Shows an inline error if the API fails.
+- No "logged in as …" display until session management ships.
 
 ---
 
@@ -304,6 +310,30 @@ in `vitest.workers.config.mts` instead (see Phase 1). This sidesteps `main` enti
 expected to be the right pattern for Phase 3 (user service) and Phase 4 (endpoints) too, since
 those also test exported functions directly rather than the deployed worker's `fetch` handler.
 
+### Deployment (manual, per phase)
+
+Cloudflare production deployment is **not** part of the automated TDD loop. After each phase's
+tests pass and the phase is reviewed, the **developer** deploys manually. Agents must not run
+`npm run deploy` unless explicitly instructed.
+
+| Phase | What was deployed manually |
+|-------|---------------------------|
+| 0 | Baseline app + Vitest scripts (`npm run deploy` after test infra landed) |
+| 1 | D1 binding + `users` migration applied to remote D1, then Workers deploy |
+| 2 | Password hashing utility (no new bindings; redeploy for code refresh) |
+| 3 | User service layer (redeploy; remote D1 already provisioned in Phase 1) |
+| 4 | Auth API routes (`/api/auth/register`, `/login`, `/logout`) |
+| 5 | Register and login UI pages (`/register`, `/login`) |
+| 6 | Dashboard placeholder (`/dashboard`) |
+| 7 | Logout button on `/dashboard` |
+
+**Notes**:
+- Remote D1 migrations use `npx wrangler d1 migrations apply DB --remote` (developer-run only;
+  agents apply `--local` for tests per `AGENTS.md`).
+- `npm run dev` runs on Node and does not prove Workers-runtime behavior; `npm run preview` is the
+  local Workers check before deploy.
+- Deployment verification is manual (hit production URLs, exercise register/login flows).
+
 ---
 
 ## Implementation Phases
@@ -330,6 +360,8 @@ those also test exported functions directly rather than the deployed worker's `f
 lint` and `npm run build` were both re-verified after these changes and still pass. `npm run test`
 currently exits 1 with "No test files found" — expected and correct until Phase 1/2 add real
 tests; not a failure.
+
+**Deployment (manual)**: developer deployed to Cloudflare Workers after Phase 0 landed.
 
 ### Phase 1: Database Setup - COMPLETED
 
@@ -399,6 +431,9 @@ went exactly to plan. Tasks 4–5 changed shape:
 - `npm run lint`, `npm run build`, and `npm run test` (both tiers) were all re-verified green after
   every change described above, not just at the end.
 
+**Deployment (manual)**: developer applied D1 migrations to remote (`--remote`) and deployed to
+Cloudflare Workers after Phase 1 landed.
+
 ### Phase 2: Password Hashing Utility - COMPLETED
 
 **Objective**: A small, dependency-free module for hashing and verifying passwords.
@@ -431,6 +466,8 @@ surfaced: `next build`'s stricter check rejected passing a `Uint8Array` directly
 `node:crypto` import), so the module stays dependency-free and works the same in Node unit tests
 and the Workers runtime. `npm run test` (5 unit + 4 workers), `npm run lint`, and `npm run build`
 all pass.
+
+**Deployment (manual)**: developer redeployed to Cloudflare Workers after Phase 2 landed.
 
 ### Phase 3: User Service - COMPLETED
 
@@ -477,6 +514,8 @@ adjustments were needed beyond the original plan:
 service methods from the task list are implemented. `npm run test` (5 unit + 11 workers), `npm run
 lint`, and `npm run build` all pass.
 
+**Deployment (manual)**: developer redeployed to Cloudflare Workers after Phase 3 landed.
+
 ### Phase 4: Auth Endpoints - COMPLETED
 
 **Objective**: Expose register, login, and logout over HTTP.
@@ -509,6 +548,9 @@ and `vitest.config.mts` excludes that glob from the unit tier. Register/login te
 emails per case (same isolation approach as Phase 3). `UserAlreadyExistsError` from Phase 3 is
 used directly (not the older `EmailAlreadyExistsError` name from the PRD code sample). `npm run
 test` (5 unit + 22 workers), `npm run lint`, and `npm run build` all pass.
+
+**Deployment (manual)**: developer redeployed to Cloudflare Workers after Phase 4 landed; auth API
+endpoints verified on production.
 
 ### Phase 5: Registration and Login Pages - COMPLETED
 
@@ -560,6 +602,9 @@ false`) rather than throwing. A minimal `/dashboard` placeholder was added so re
 (Phase 6 deliverable, built alongside Phase 5). `npm run test` (14 unit + 22 workers), `npm run
 lint`, and `npm run build` all pass.
 
+**Deployment (manual)**: developer redeployed to Cloudflare Workers after Phase 5 landed;
+`/register` and `/login` verified on production.
+
 ### Phase 6: MCQ Placeholder Page - COMPLETED
 
 **Objective**: Reserve the landing spot for the next build.
@@ -576,14 +621,47 @@ Verified manually via the Acceptance Criteria below instead. Revisit if this pag
 
 **What was actually built**: minimal placeholder with heading and "Coming soon." copy, added
 during Phase 5 so register/login redirects have a target. Verified via `npm run build` static
-generation.
+generation. Logout button added in Phase 7.
+
+**Deployment (manual)**: developer redeployed to Cloudflare Workers after Phase 6 landed;
+`/dashboard` verified on production.
+
+### Phase 7: Dashboard Logout Button - COMPLETED
+
+**Objective**: Wire the existing logout API to a visible control on `/dashboard`.
+
+**Tests (write first)**, in `src/lib/auth-client.test.ts` (plain unit tests; mock `globalThis.fetch`):
+- `logoutUser` returns `{ ok: true }` on a 200 response
+- `logoutUser` returns a server error on 500
+
+**Tasks** (make the tests above pass, then build the UI):
+1. Add `logoutUser()` to `src/lib/auth-client.ts` — calls `POST /api/auth/logout`, parses JSON
+2. Create `src/components/logout-button.tsx` — client component with submit handler and error display
+3. Update `src/app/dashboard/page.tsx` — render `LogoutButton` in the page header; redirect to
+   `/login` on success
+
+**Deliverables**:
+- `logoutUser` in `auth-client.ts` + 2 new unit tests in `auth-client.test.ts`
+- `src/components/logout-button.tsx`
+- Updated `src/app/dashboard/page.tsx`
+
+**Manual verification** (after automated tests pass):
+- Click logout on `/dashboard` → lands on `/login`
+- API failure shows inline error on the dashboard (no redirect)
+
+**What was actually built**: exactly the above. `LogoutButton` is an outline button in the
+dashboard header. Logout remains stateless — no cookies or tokens cleared — but gives teachers a
+clear exit path from the placeholder page. `npm run test` (16 unit + 22 workers), `npm run lint`,
+and `npm run build` all pass.
+
+**Deployment (manual)**: developer to redeploy to Cloudflare Workers after Phase 7 review.
 
 ---
 
 ## Technical Implementation Details
 
-**Note**: Phases 0–4 are implemented. Phases 5–6 below are still the planned approach and should
-be updated to reflect what was actually built when complete.
+**Note**: Phases 0–7 are implemented. Session management (persistent login state, auth gating) remains
+out of scope — logout UI is wired to the stateless API only.
 
 ### Key Files
 
@@ -615,11 +693,12 @@ be updated to reflect what was actually built when complete.
   workers tests)
 - `src/app/api/auth/logout/route.ts` (+ `route.test.ts`) - POST handler, stateless (done in Phase 4;
   1 workers test)
-- `src/lib/auth-client.ts` / `auth-client.test.ts` - browser-side fetch wrappers for register and
-  login (Phase 5; 9 unit tests)
+- `src/lib/auth-client.ts` / `auth-client.test.ts` - browser-side fetch wrappers for register,
+  login, and logout (Phase 5 + Phase 7; 11 unit tests for auth-client)
 - `src/app/register/page.tsx`, `src/components/signup-form.tsx` - registration UI (Phase 5)
 - `src/app/login/page.tsx`, `src/components/login-form.tsx` - login UI (Phase 5)
 - `src/app/dashboard/page.tsx` - placeholder landing page for the MCQ test bank (Phase 6)
+- `src/components/logout-button.tsx` - dashboard logout control (Phase 7)
 
 ### Implementation Patterns
 
@@ -802,6 +881,8 @@ export async function registerUser(input: RegisterInput) {
 - [x] `/login` shows a generic error on wrong password or unknown email (no user enumeration)
 - [x] `/register` and `/login` link to each other
 - [x] `/dashboard` renders a placeholder page with no console errors
+- [x] **Logout button on `/dashboard`** — calls `POST /api/auth/logout` and redirects to `/login`
+      on success (stateless; no session invalidation yet)
 - [x] Every phase above has a Vitest test file that was written and observed failing (red) before
       that phase's implementation existed, and passing (green) after
 - [x] `npm run test` passes with zero failures before this PRD is marked complete
@@ -822,6 +903,8 @@ This phase has no end users yet, so metrics are engineering checks rather than p
 | Duplicate emails in `users` | 0 | `SELECT email, COUNT(*) FROM users GROUP BY email HAVING COUNT(*) > 1` returns no rows |
 | Duplicate usernames in `users` | 0 | `SELECT username, COUNT(*) FROM users GROUP BY username HAVING COUNT(*) > 1` returns no rows |
 | Local migration apply | Exit code 0 | `npx wrangler d1 migrations apply DB --local` |
+| Production deploy (per phase) | Exit code 0 | Developer-run `npm run deploy` after each phase; verify routes on production |
+| Remote D1 migration | Applied | Developer-run `npx wrangler d1 migrations apply DB --remote` (Phase 1+) |
 
 ---
 
@@ -829,8 +912,8 @@ This phase has no end users yet, so metrics are engineering checks rather than p
 
 ### External Dependencies
 
-- **Cloudflare D1** - primary datastore for the `users` table. Not yet provisioned in this
-  project; provisioning it is Phase 1 of this PRD.
+- **Cloudflare D1** - primary datastore for the `users` table. Provisioned in Phase 1; remote
+  instance used in production after developer-applied `--remote` migrations.
 
 ### Internal Dependencies
 
@@ -894,11 +977,9 @@ This phase has no end users yet, so metrics are engineering checks rather than p
   but can read as unhelpful once a UI exists.
   **Mitigation**: Phase 5 displays the API's generic message verbatim — no extra copy that leaks
   whether the email exists. UX polish can follow in a later pass; the security contract stays.
-- **Risk**: Users may expect to stay "logged in" after registering or signing in, but sessions are
-  still out of scope.
-  **Mitigation**: Phase 5 redirects to `/dashboard` on success but does not persist auth state.
-  Call this out in the UI only if needed (e.g., a one-line note on `/dashboard`); do not add
-  cookies or tokens to simulate persistence.
+- **Risk**: Users may expect logout to end a persistent session, but sessions are still out of scope.
+  **Mitigation**: Phase 7 logout calls the API and redirects to `/login` for UX continuity. Document
+  that revisiting `/dashboard` directly still works until session management ships.
 
 ---
 
@@ -1043,6 +1124,8 @@ captures PowerShell's table-formatted output for `Select-Object`.
 - Do not add session, cookie, or token logic even if it feels like a natural next step — that
   belongs to a future PRD. Phase 5 pages call the API and redirect; they do not remember the user.
 - Do not build MCQ/test-bank functionality beyond the single placeholder page in Phase 6.
+- Cloudflare deployment is developer-driven per phase; agents do not run `npm run deploy` unless
+  explicitly asked.
 - All `users` table access must go through `src/lib/services/user-service.ts`. Never call
   `env.DB` for user data from a route handler or component directly.
 - Never apply a migration with `--remote`.
@@ -1052,8 +1135,7 @@ captures PowerShell's table-formatted output for `Select-Object`.
 ## Current Status
 
 **Last Updated**: September 2, 2026
-**Current Phase**: Phase 5 complete (Registration and Login Pages); Phase 6 complete (Dashboard
-placeholder)
-**Status**: COMPLETE — pending manual UI verification and user review
-**Next Steps**: Manually verify register/login flows in the browser (`npm run dev`), then commit
-when directed.
+**Current Phase**: All phases (0–7) complete
+**Status**: COMPLETE — pending PRD review and Phase 7 manual deploy
+**Deployment**: Phases 0–6 manually deployed; Phase 7 pending developer deploy (see Deployment table).
+**Next Steps**: Manually verify logout on `/dashboard` in browser; deploy Phase 7 to Cloudflare.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loginUser, registerUser } from "./auth-client";
+import { loginUser, logoutUser, registerUser } from "./auth-client";
 
 const validRegisterInput = {
 	email: "teacher@example.com",
@@ -177,6 +177,43 @@ describe("loginUser", () => {
 		);
 
 		const result = await loginUser(validLoginInput);
+
+		expect(result).toEqual({
+			ok: false,
+			kind: "server",
+			message: "Something went wrong",
+		});
+	});
+});
+
+describe("logoutUser", () => {
+	beforeEach(() => {
+		vi.stubGlobal("fetch", vi.fn());
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	it("returns ok on a 200 response", async () => {
+		vi.mocked(fetch).mockResolvedValue(
+			new Response(JSON.stringify({ success: true }), { status: 200 })
+		);
+
+		const result = await logoutUser();
+
+		expect(result).toEqual({ ok: true });
+		expect(fetch).toHaveBeenCalledWith("/api/auth/logout", { method: "POST" });
+	});
+
+	it("returns a server error on 500", async () => {
+		vi.mocked(fetch).mockResolvedValue(
+			new Response(JSON.stringify({ error: { message: "Something went wrong" } }), {
+				status: 500,
+			})
+		);
+
+		const result = await logoutUser();
 
 		expect(result).toEqual({
 			ok: false,
