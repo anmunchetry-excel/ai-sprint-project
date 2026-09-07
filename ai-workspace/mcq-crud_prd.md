@@ -1030,7 +1030,7 @@ again, and no browser console errors. Wrangler 4.128.0 then confirmed two distin
 rows (one correct and one incorrect); after the user deleted the question through the dashboard,
 the same query returned `attempt_count: 0`, confirming the foreign-key cascade.
 
-### Phase 10: Continuous Bugfix and Feature Development - PLANNED
+### Phase 10: Continuous Bugfix and Feature Development - IN PROGRESS
 
 **Objective**: Provide a permanent, continuously reviewed phase for small defects, usability
 improvements, and incremental features discovered while exercising the completed application.
@@ -1038,6 +1038,48 @@ improvements, and incremental features discovered while exercising the completed
 **Initial backlog**:
 1. Replace the Next.js starter home page with a welcome page containing Login and Register links.
 2. Display `Welcome, <username>` in the dashboard header using the Phase 6 current-user helper.
+
+#### September 8, 2026 — Welcome Home Page (COMPLETE)
+
+**Expected behaviour**: `/` presents the MCQ Test Bank as the product entry point instead of
+showing create-next-app content. It has prominent Login and Register links, uses the existing
+design-system primitives, remains responsive, and stays statically generated.
+
+**Acceptance criteria**:
+- [x] The page introduces the MCQ Test Bank and its authoring/preview purpose
+- [x] Login navigates to `/login`; Register navigates to `/register`
+- [x] No Next.js logos, starter instructions, or external starter links remain
+- [x] The layout works at mobile and desktop widths with no browser console errors
+- [x] `npm run test`, `npm run lint`, and `npm run build` pass
+
+**Test approach**: presentation-only change; no component-test framework is installed. Verify
+link destinations and responsive rendering manually, verify the rendered HTML over HTTP, and
+confirm static generation in the production build.
+
+**What was actually built**: the server-rendered home page now
+uses the existing Button and Card primitives for a responsive product header, introduction, Login
+and Register calls to action, and concise authoring/preview feature cards. All starter images,
+instructions, and external links were removed. The rendered HTML smoke check found the `/login`
+and `/register` destinations and no starter content. All 123 tests and lint pass; the production
+build passes and confirms `/` remains statically generated. The user reviewed the implementation
+and confirmed it is correct.
+
+#### September 8, 2026 — Dashboard Username Greeting (PENDING)
+
+**Expected behaviour**: after successful login or registration, `/dashboard` displays
+`Welcome, <username>` using the validated user stored by the Phase 6 current-user helper. Missing
+or malformed storage must not display stale identity and must redirect to `/login`.
+
+**Acceptance criteria**:
+- The dashboard header displays the exact stored username as `Welcome, <username>`
+- Both login and registration flows produce the greeting
+- Missing or malformed current-user storage redirects to `/login` without showing stale identity
+- The existing question table, New question action, and logout remain functional
+- `npm run test`, `npm run lint`, and `npm run build` pass
+
+**Test approach**: reuse the unit-tested `getCurrentUser()` storage boundary. No component-test
+framework is installed, so manually verify login, registration, malformed/cleared storage,
+responsive rendering, and the browser console.
 
 **Continuous review protocol**:
 1. Keep a dated backlog under this phase. Add each newly reported bug or feature before changing
@@ -1554,6 +1596,6 @@ Two things from the auth phase are worth knowing before starting, because they w
 
 **Last Updated**: September 8, 2026
 **Current Phase**: Phase 10 - Continuous Bugfix and Feature Development
-**Status**: Phases 1–9 COMPLETE; Phase 10 PLANNED
-**Next Steps**: Review Phase 9, then begin the first Phase 10 backlog item: replace the starter home
-page with the welcome dashboard containing Login and Register links.
+**Status**: Phases 1–9 COMPLETE; Phase 10 IN PROGRESS (home page complete; greeting pending)
+**Next Steps**: Commit and push the approved welcome home page iteration, then begin the separately
+tracked dashboard username greeting.
