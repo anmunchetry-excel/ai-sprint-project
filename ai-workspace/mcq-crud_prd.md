@@ -1030,15 +1030,15 @@ again, and no browser console errors. Wrangler 4.128.0 then confirmed two distin
 rows (one correct and one incorrect); after the user deleted the question through the dashboard,
 the same query returned `attempt_count: 0`, confirming the foreign-key cascade.
 
-### Phase 10: Continuous Bugfix and Feature Development - IN PROGRESS
+### Phase 10: Continuous Bugfix and Feature Development - CONTINUOUS
 
 **Objective**: Provide a permanent, continuously reviewed phase for small defects, usability
 improvements, and incremental features discovered while exercising the completed application.
 
 **Initial backlog**:
-1. Replace the Next.js starter home page with a welcome page containing Login and Register links.
-2. Display `Welcome, <username>` in the dashboard header using the Phase 6 current-user helper.
-3. Redirect successful logout to the home page instead of the login page.
+1. [x] Replace the Next.js starter home page with a welcome page containing Login and Register links.
+2. [x] Display `Welcome, <username>` in the dashboard header using the Phase 6 current-user helper.
+3. [x] Redirect successful logout to the home page instead of the login page.
 
 #### September 8, 2026 — Welcome Home Page (COMPLETE)
 
@@ -1102,22 +1102,28 @@ tests, lint, and the production build pass. A subsequent review moved New questi
 header and into the content area above the table. The user approved the final left/center/right
 header alignment, relocated action, and console-warning fix.
 
-#### September 8, 2026 — Logout Returns Home (PENDING)
+#### September 8, 2026 — Logout Returns Home (COMPLETE)
 
 **Expected behaviour**: after the logout API succeeds, local current-user storage is cleared and
 the browser navigates to `/`, where the user can choose Login or Register. Failed logout requests
 remain on the dashboard and continue to show the existing error.
 
 **Acceptance criteria**:
-- Successful logout clears `ai-sprint:current-user`
-- Successful logout navigates to `/`, not `/login`
-- The welcome home page renders after logout
-- Failed logout retains the current error behaviour
-- `npm run test`, `npm run lint`, and `npm run build` pass
+- [x] Successful logout clears `ai-sprint:current-user`
+- [x] Successful logout navigates to `/`, not `/login`
+- [x] The welcome home page renders after logout
+- [x] Failed logout retains the current error behaviour
+- [x] `npm run test`, `npm run lint`, and `npm run build` pass
 
 **Test approach**: update the existing logout component navigation after the successful
 `logoutUser()` result. Manually verify dashboard → logout → home navigation and confirm the cleared
 storage redirects a direct `/dashboard` visit to `/login`.
+
+**What was actually built**: successful logout still clears
+the current-user storage, then uses `router.replace("/")` so the welcome home page replaces the
+authenticated dashboard in browser history. Failed logout handling is unchanged. All 123 tests,
+lint, and the production build pass. The user verified and approved logout-to-home and the
+subsequent `/dashboard` redirect behaviour.
 
 **Continuous review protocol**:
 1. Keep a dated backlog under this phase. Add each newly reported bug or feature before changing
@@ -1151,14 +1157,14 @@ storage redirects a direct `/dashboard` visit to `/login`.
 - Updated acceptance criteria and dated review notes in this phase
 
 **Manual verification for the initial backlog**:
-- `/` contains no Next.js starter content and visibly offers Login and Register actions
-- Login opens `/login`; Register opens `/register`
-- After login or registration, `/dashboard` displays the exact stored username in
+- [x] `/` contains no Next.js starter content and visibly offers Login and Register actions
+- [x] Login opens `/login`; Register opens `/register`
+- [x] After login or registration, `/dashboard` displays the exact stored username in
   `Welcome, <username>`
-- Clearing or corrupting current-user storage does not display stale identity and redirects to
+- [x] Clearing or corrupting current-user storage does not display stale identity and redirects to
   `/login`
-- Successful logout lands on `/` and a subsequent direct `/dashboard` visit redirects to `/login`
-- No console errors at `/` or `/dashboard`
+- [x] Successful logout lands on `/` and a subsequent direct `/dashboard` visit redirects to `/login`
+- [x] No console errors at `/` or `/dashboard`
 
 ---
 
@@ -1398,11 +1404,12 @@ API:
 
 User interface:
 
-- [ ] `/` renders a welcoming MCQ test-bank page with working Login and Register links
-- [ ] `/` no longer displays Next.js starter logos, instructions, or external starter links
-- [ ] `/dashboard` displays `Welcome, <username>` using the stored current user
-- [ ] Missing or malformed current-user storage never displays stale identity and redirects to
+- [x] `/` renders a welcoming MCQ test-bank page with working Login and Register links
+- [x] `/` no longer displays Next.js starter logos, instructions, or external starter links
+- [x] `/dashboard` displays `Welcome, <username>` using the stored current user
+- [x] Missing or malformed current-user storage never displays stale identity and redirects to
       `/login`
+- [x] Successful logout clears current-user storage and navigates to `/`
 - [x] `/dashboard` lists all questions in a shadcn `Table` with name, question, choice count, and
       created date
 - [x] Each row has a vertical-ellipsis actions button opening a dropdown with Edit, Preview, and
@@ -1638,6 +1645,6 @@ Two things from the auth phase are worth knowing before starting, because they w
 
 **Last Updated**: September 8, 2026
 **Current Phase**: Phase 10 - Continuous Bugfix and Feature Development
-**Status**: Phases 1–9 COMPLETE; Phase 10 IN PROGRESS (home page and greeting complete; logout pending)
-**Next Steps**: Commit and push the approved dashboard greeting iteration, then implement the
-separately tracked logout-to-home backlog item.
+**Status**: Phases 1–9 COMPLETE; Phase 10 initial backlog COMPLETE and open for future items
+**Next Steps**: Commit and push the approved logout-to-home iteration. Add future bugfixes or small
+features as new dated Phase 10 backlog entries before implementation.

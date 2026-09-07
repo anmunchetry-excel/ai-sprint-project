@@ -21,7 +21,7 @@ export function LogoutButton() {
 
 		if (result.ok) {
 			clearCurrentUser();
-			router.push("/login");
+			router.replace("/");
 			return;
 		}
 
