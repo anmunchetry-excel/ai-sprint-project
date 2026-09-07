@@ -1,5 +1,5 @@
 Date created: September 7, 2026
-Date last modified: September 7, 2026
+Date last modified: September 8, 2026
 
 # Multiple-Choice Question CRUD - Technical PRD
 
@@ -354,6 +354,189 @@ Cascades to `mcq_choices` and `mcq_attempts`.
 
 `isCorrect` is derived server-side from the stored choice. The client cannot set it.
 
+### Manual cURL Verification (Phases 4–5)
+
+Run these in PowerShell while `npm run dev` is serving `http://localhost:3000`. Use `curl.exe`
+explicitly because `curl` may be a PowerShell alias. The setup creates a disposable user and two
+questions, then captures their ids for the remaining requests.
+
+```powershell
+$BaseUrl = "http://localhost:3000"
+$Suffix = [guid]::NewGuid().ToString("N").Substring(0, 12)
+
+# Setup: register a disposable user and capture its id (expected 201).
+$RegisterBody = @{
+  email = "curl-$Suffix@example.com"
+  username = "curl-$Suffix"
+  firstName = "Curl"
+  lastName = "Tester"
+  password = "at-least-8-characters"
+} | ConvertTo-Json -Compress
+$Registered = $RegisterBody | curl.exe -sS -X POST "$BaseUrl/api/auth/register" `
+  -H "Content-Type: application/json" --data-binary "@-" | ConvertFrom-Json
+$UserId = $Registered.user.id
+
+# POST /api/mcqs — create success (expected 201) and capture question/choice ids.
+$CreateBody = @{
+  name = "cURL photosynthesis question"
+  question = "Which gas do plants absorb?"
+  userId = $UserId
+  choices = @(
+    @{ text = "Carbon dioxide"; isCorrect = $true },
+    @{ text = "Oxygen"; isCorrect = $false }
+  )
+} | ConvertTo-Json -Depth 5 -Compress
+$Created = $CreateBody | curl.exe -sS -X POST "$BaseUrl/api/mcqs" `
+  -H "Content-Type: application/json" --data-binary "@-" | ConvertFrom-Json
+$McqId = $Created.mcq.id
+$CorrectChoiceId = ($Created.mcq.choices | Where-Object isCorrect).id
+$IncorrectChoiceId = ($Created.mcq.choices | Where-Object { -not $_.isCorrect }).id
+$Created | ConvertTo-Json -Depth 6
+
+# Create a second question for the mismatched-choice test (expected 201).
+$SecondCreateBody = @{
+  name = "cURL second question"
+  question = "Which option is correct?"
+  userId = $UserId
+  choices = @(
+    @{ text = "First"; isCorrect = $true },
+    @{ text = "Second"; isCorrect = $false }
+  )
+} | ConvertTo-Json -Depth 5 -Compress
+$Second = $SecondCreateBody | curl.exe -sS -X POST "$BaseUrl/api/mcqs" `
+  -H "Content-Type: application/json" --data-binary "@-" | ConvertFrom-Json
+$SecondMcqId = $Second.mcq.id
+$SecondChoiceId = $Second.mcq.choices[0].id
+```
+
+Phase 4 CRUD endpoints:
+
+```powershell
+# GET /api/mcqs — list success (expected 200).
+curl.exe -i -sS "$BaseUrl/api/mcqs"
+
+# GET /api/mcqs/[id] — read success and not found (expected 200, then 404).
+curl.exe -i -sS "$BaseUrl/api/mcqs/$McqId"
+curl.exe -i -sS "$BaseUrl/api/mcqs/missing-mcq"
+
+# PUT /api/mcqs/[id] — update success (expected 200).
+$UpdateBody = @{
+  name = "Updated cURL question"
+  question = "Which gas is absorbed by plants?"
+  choices = @(
+    @{ text = "Carbon dioxide"; isCorrect = $true },
+    @{ text = "Oxygen"; isCorrect = $false },
+    @{ text = "Nitrogen"; isCorrect = $false }
+  )
+} | ConvertTo-Json -Depth 5 -Compress
+$Updated = $UpdateBody | curl.exe -sS -X PUT "$BaseUrl/api/mcqs/$McqId" `
+  -H "Content-Type: application/json" --data-binary "@-" | ConvertFrom-Json
+$CorrectChoiceId = ($Updated.mcq.choices | Where-Object isCorrect).id
+$IncorrectChoiceId = ($Updated.mcq.choices | Where-Object { -not $_.isCorrect })[0].id
+$Updated | ConvertTo-Json -Depth 6
+
+# POST validation failure: one choice (expected 400).
+$InvalidCreateBody = @{
+  name = "Invalid question"
+  question = "Only one choice?"
+  userId = $UserId
+  choices = @(@{ text = "Only"; isCorrect = $true })
+} | ConvertTo-Json -Depth 5 -Compress
+$InvalidCreateBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs" `
+  -H "Content-Type: application/json" --data-binary "@-"
+
+# POST unknown creator (expected 404).
+$MissingUserBody = @{
+  name = "Missing creator"
+  question = "Should this fail?"
+  userId = "missing-user"
+  choices = @(
+    @{ text = "Yes"; isCorrect = $true },
+    @{ text = "No"; isCorrect = $false }
+  )
+} | ConvertTo-Json -Depth 5 -Compress
+$MissingUserBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs" `
+  -H "Content-Type: application/json" --data-binary "@-"
+
+# PUT validation failure and unknown question (expected 400, then 404).
+$InvalidUpdateBody = @{
+  name = "Invalid update"
+  question = "Still one choice?"
+  choices = @(@{ text = "Only"; isCorrect = $true })
+} | ConvertTo-Json -Depth 5 -Compress
+$InvalidUpdateBody | curl.exe -i -sS -X PUT "$BaseUrl/api/mcqs/$McqId" `
+  -H "Content-Type: application/json" --data-binary "@-"
+$UpdateBody | curl.exe -i -sS -X PUT "$BaseUrl/api/mcqs/missing-mcq" `
+  -H "Content-Type: application/json" --data-binary "@-"
+```
+
+Phase 5 attempt endpoint:
+
+```powershell
+# Correct and incorrect submissions (both expected 201).
+$CorrectAttemptBody = @{
+  userId = $UserId
+  choiceId = $CorrectChoiceId
+} | ConvertTo-Json -Compress
+$IncorrectAttemptBody = @{
+  userId = $UserId
+  choiceId = $IncorrectChoiceId
+} | ConvertTo-Json -Compress
+$CorrectAttemptBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/$McqId/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+$IncorrectAttemptBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/$McqId/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+
+# Client-supplied isCorrect is ignored; stored result remains true (expected 201).
+$TamperedAttemptBody = @{
+  userId = $UserId
+  choiceId = $CorrectChoiceId
+  isCorrect = $false
+} | ConvertTo-Json -Compress
+$TamperedAttemptBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/$McqId/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+
+# Missing choiceId (expected 400).
+$MissingChoiceFieldBody = @{ userId = $UserId } | ConvertTo-Json -Compress
+$MissingChoiceFieldBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/$McqId/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+
+# Choice from a different question (expected 400).
+$WrongQuestionChoiceBody = @{
+  userId = $UserId
+  choiceId = $SecondChoiceId
+} | ConvertTo-Json -Compress
+$WrongQuestionChoiceBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/$McqId/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+
+# Unknown question, user, and choice (each expected 404).
+$CorrectAttemptBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/missing-mcq/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+$MissingAttemptUserBody = @{
+  userId = "missing-user"
+  choiceId = $CorrectChoiceId
+} | ConvertTo-Json -Compress
+$MissingAttemptUserBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/$McqId/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+$MissingChoiceBody = @{
+  userId = $UserId
+  choiceId = "missing-choice"
+} | ConvertTo-Json -Compress
+$MissingChoiceBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/$McqId/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+
+# Re-run this twice; each response must have a different attempt id (both expected 201).
+$CorrectAttemptBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/$McqId/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+$CorrectAttemptBody | curl.exe -i -sS -X POST "$BaseUrl/api/mcqs/$McqId/attempts" `
+  -H "Content-Type: application/json" --data-binary "@-"
+
+# DELETE /api/mcqs/[id] — cleanup success, then not found (expected 200, 200, then 404).
+curl.exe -i -sS -X DELETE "$BaseUrl/api/mcqs/$McqId"
+curl.exe -i -sS -X DELETE "$BaseUrl/api/mcqs/$SecondMcqId"
+curl.exe -i -sS -X DELETE "$BaseUrl/api/mcqs/missing-mcq"
+```
+
 ### User Interface Requirements
 
 The MCQ screens under `/dashboard` are client components (`'use client'`) — they read the current
@@ -637,7 +820,7 @@ full 93-test suite pass; `npm run lint` and `npm run build` both pass. The produ
 `/api/mcqs` and `/api/mcqs/[id]` as dynamic routes. No dependency or configuration change was
 needed.
 
-### Phase 5: Attempts Endpoint - PLANNED
+### Phase 5: Attempts Endpoint - COMPLETED
 
 **Objective**: Record an attempt against a question.
 
@@ -658,6 +841,19 @@ needed.
 
 **Deliverables**:
 - `src/app/api/mcqs/[id]/attempts/route.ts` + `route.test.ts`, all green
+
+**What was actually built**: the planned `POST` handler with request validation before D1 access,
+one Cloudflare-context lookup, and service-error mapping to 400/404/500 responses. Ten
+Workers-runtime tests were written first and confirmed red because the attempts route module did
+not exist, while the existing 60 Workers tests remained green. In addition to the planned cases,
+an unknown `choiceId` is explicitly tested as 404 and malformed JSON returns 400. A live
+PowerShell `curl.exe` smoke test then exercised register → create MCQ → submit a tampered
+`isCorrect: false` claim against the correct choice → delete MCQ; the server derived
+`isCorrect: true` and cleanup succeeded. Copy-pasteable cURL tests for every Phase 4–5 endpoint and
+its main error cases are recorded under Manual cURL Verification. Green verification: 33 unit
+tests, 70 Workers tests, and the full 103-test suite pass; `npm run lint` and `npm run build` both
+pass. The production build lists `/api/mcqs/[id]/attempts` as a dynamic route. No dependency or
+configuration change was needed.
 
 ### Phase 6: Browser Client and Current-User Helper - PLANNED
 
@@ -837,7 +1033,7 @@ improvements, and incremental features discovered while exercising the completed
 
 ## Technical Implementation Details
 
-**Note**: Phases 1–4 are implemented. Fill in "What was actually built" under each later phase as
+**Note**: Phases 1–5 are implemented. Fill in "What was actually built" under each later phase as
 it lands, matching how `register-login-logout_prd.md` records deviations from plan.
 
 ### Key Files
@@ -1064,9 +1260,9 @@ API:
 - [x] `GET /api/mcqs/[id]` returns the question with choices in position order; 404 for an unknown id
 - [x] `PUT /api/mcqs/[id]` replaces name, question, and the full choice set
 - [x] `DELETE /api/mcqs/[id]` returns success and the question is gone; 404 for an unknown id
-- [ ] `POST /api/mcqs/[id]/attempts` records an attempt with server-derived correctness
-- [ ] An `isCorrect` value supplied in an attempt request body is ignored
-- [ ] Submitting a `choiceId` from a different question returns 400
+- [x] `POST /api/mcqs/[id]/attempts` records an attempt with server-derived correctness
+- [x] An `isCorrect` value supplied in an attempt request body is ignored
+- [x] Submitting a `choiceId` from a different question returns 400
 - [x] Every route handler validates its body with a Zod schema before touching the database
 
 User interface:
@@ -1227,6 +1423,17 @@ artifacts even though Phase 1 did not change any application TypeScript.
 production types and the build passed. No source file needed a change.
 **Code Reference**: `tsconfig.json:39-40`
 
+### PowerShell corrupts JSON passed to `curl.exe --data-raw`
+**Problem**: The first live endpoint smoke test returned invalid-JSON and validation errors even
+though `ConvertTo-Json` printed a valid request body.
+**Cause**: Passing a PowerShell string variable directly as `--data-raw $Body` caused native
+argument processing to remove the JSON quotes before `curl.exe` sent it. The first generated
+username also exceeded the API's 30-character limit because it used a full GUID.
+**Solution**: Pipe the JSON string to cURL's standard input and use `--data-binary "@-"`. Limit the
+GUID suffix to 12 characters. The corrected register → create → attempt → delete smoke test passed.
+All commands under Manual cURL Verification use this working pattern.
+**Code Reference**: `ai-workspace/mcq-crud_prd.md:357`
+
 Two things from the auth phase are worth knowing before starting, because they will bite again:
 
 - **Do not call `reset()` from `cloudflare:test` between tests.** It wipes the schema applied by
@@ -1264,6 +1471,8 @@ Two things from the auth phase are worth knowing before starting, because they w
 - Do not add reporting, analytics, or an attempts UI beyond the preview page in Phase 9.
 - Maintain Phase 10 as the continuously reviewed bugfix/feature backlog. Add dated entries before
   implementation, complete them one at a time, and use phase-numbered commit messages.
+- After every phase that creates or changes endpoints, add and provide copy-pasteable `curl.exe`
+  commands for every endpoint and its main success/error cases.
 - Ask before adding any npm dependency. This feature is planned to need none.
 - Never apply a migration with `--remote`. Deployment is developer-driven per phase.
 
@@ -1271,8 +1480,8 @@ Two things from the auth phase are worth knowing before starting, because they w
 
 ## Current Status
 
-**Last Updated**: September 7, 2026
-**Current Phase**: Phase 5 - Attempts Endpoint
-**Status**: Phases 1–4 COMPLETE; Phase 5 PLANNED
-**Next Steps**: Review Phase 4, then begin Phase 5 by writing the attempts route tests and
-confirming they fail before creating the route handler.
+**Last Updated**: September 8, 2026
+**Current Phase**: Phase 6 - Browser Client and Current-User Helper
+**Status**: Phases 1–5 COMPLETE; Phase 6 PLANNED
+**Next Steps**: Review Phase 5 and its cURL verification commands, then begin Phase 6 by writing
+the browser-client and current-user tests before creating their implementations.
