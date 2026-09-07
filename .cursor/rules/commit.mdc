@@ -18,7 +18,8 @@ When work is organized into implementation phases:
    - a concise summary of what changed;
    - the actual test, lint, and build results;
    - the exact files that will be committed;
-   - the proposed commit message.
+   - the proposed commit message, including the phase number (for example,
+     `feat(phase-4): add MCQ CRUD endpoints` or `fix(phase-10): correct dashboard greeting`).
 6. Do not commit, push, or begin the next phase until the user approves.
 7. After approval, commit only the approved phase files and push that commit to the current branch.
    Do not switch, create, merge, rebase, or force-push branches unless the user separately asks.

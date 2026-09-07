@@ -58,6 +58,13 @@ attempt records that any future reporting or grading feature depends on.
   **Cancel** buttons.
 - **`/dashboard/mcqs/[id]/preview`** — the question rendered as a learner would see it. Selecting a
   choice and submitting posts an attempt and shows whether it was correct.
+- **A welcoming home page at `/`** replacing the Next.js starter content, with clear **Login** and
+  **Register** links.
+- **A personalized dashboard greeting** displaying `Welcome, <username>` from the current user
+  stored by the Phase 6 helper.
+- **A continuously reviewed bugfix/feature phase** after the core MCQ build. New small defects and
+  refinements are added to its dated backlog, implemented one iteration at a time, and independently
+  approved, committed, and pushed.
 - **Four new shadcn/ui components** added via the CLI: `dropdown-menu`, `textarea`, `radio-group`,
   and `alert-dialog` (delete confirmation). These are source files copied into the repo, not npm
   packages.
@@ -349,13 +356,27 @@ Cascades to `mcq_choices` and `mcq_attempts`.
 
 ### User Interface Requirements
 
-All four screens are client components (`'use client'`) — they read the current user from
-`localStorage` and call the API with `fetch`, neither of which works during a server render.
+The MCQ screens under `/dashboard` are client components (`'use client'`) — they read the current
+user from `localStorage` and call the API with `fetch`, neither of which works during a server
+render. The public home page can remain a Server Component because it only renders static content
+and links.
+
+#### Welcome Home Page (`/`)
+
+- Replaces the unchanged Next.js starter page and starter logos/links.
+- Displays a welcoming heading for the MCQ test-bank application and a short explanation of what
+  teachers can do.
+- Provides two prominent navigation actions: **Login** → `/login` and **Register** → `/register`.
+- Uses Next.js `Link` plus existing shadcn `Button`/`Card` components and semantic Tailwind tokens.
+- Remains public and requires no current-user state.
 
 #### Question List (`/dashboard`)
 
 Replaces the current placeholder. Keeps the existing `LogoutButton` in the header.
 
+- Displays `Welcome, <username>` in the dashboard header using the user returned by
+  `getCurrentUser()`. If the stored user is absent or malformed, follow the existing redirect to
+  `/login`; do not render an invented username.
 - Loads `GET /api/mcqs` on mount; shows a loading state, then the table.
 - **shadcn `Table`** with columns: **Name**, **Question** (truncated to one line), **Choices**
   (count), **Created**, and a right-aligned **Actions** column.
@@ -580,7 +601,7 @@ attempt ordering. Green verification: 33 unit tests, 44 Workers tests, and the f
 pass; `npm run lint` and `npm run build` both pass. No dependency or configuration change was
 needed.
 
-### Phase 4: MCQ CRUD Endpoints - PLANNED
+### Phase 4: MCQ CRUD Endpoints - COMPLETED
 
 **Objective**: Expose list, create, read, update, and delete over HTTP.
 
@@ -604,6 +625,17 @@ constructed `Request` objects, mocking `getCloudflareContext()` as the auth rout
 
 **Deliverables**:
 - Two route files and their colocated `route.test.ts` files, all green
+
+**What was actually built**: the two planned route modules exposing all five CRUD handlers. Sixteen
+Workers-runtime tests were written first across the collection and dynamic-id routes and confirmed
+red because both `route.ts` modules were absent, while all existing 44 Workers tests remained
+green. Every body is parsed and validated before obtaining the D1 binding, every handler obtains
+the Cloudflare context once, and every database operation delegates to `mcq-service.ts`. In
+addition to the planned status-code cases, malformed JSON returns a controlled 400 rather than
+escaping as an unhandled exception. Green verification: 33 unit tests, 60 Workers tests, and the
+full 93-test suite pass; `npm run lint` and `npm run build` both pass. The production build lists
+`/api/mcqs` and `/api/mcqs/[id]` as dynamic routes. No dependency or configuration change was
+needed.
 
 ### Phase 5: Attempts Endpoint - PLANNED
 
@@ -755,11 +787,57 @@ correctness rule in Phase 5. Verified manually below.
   (`npx wrangler d1 execute DB --local --command "SELECT * FROM mcq_attempts"`)
 - Deleting the question afterwards also removes its attempt rows
 
+### Phase 10: Continuous Bugfix and Feature Development - PLANNED
+
+**Objective**: Provide a permanent, continuously reviewed phase for small defects, usability
+improvements, and incremental features discovered while exercising the completed application.
+
+**Initial backlog**:
+1. Replace the Next.js starter home page with a welcome page containing Login and Register links.
+2. Display `Welcome, <username>` in the dashboard header using the Phase 6 current-user helper.
+
+**Continuous review protocol**:
+1. Keep a dated backlog under this phase. Add each newly reported bug or feature before changing
+   implementation code, including expected behaviour and acceptance criteria.
+2. Work on one backlog item at a time. For logic or regressions, write and observe a failing test
+   first. For presentation-only changes where no component-test framework exists, document the
+   manual verification instead of adding a hollow test or an unapproved dependency.
+3. Run `npm run test`, `npm run lint`, and `npm run build` for every iteration.
+4. Record what was actually built, verification results, and any troubleshooting notes in this
+   phase after every iteration.
+5. Stop for user review and approval after every iteration. Commit and push only the approved files
+   to the current branch using a phase-numbered message such as
+   `fix(phase-10): correct <behaviour>` or `feat(phase-10): add <capability>`.
+6. Keep this phase **IN PROGRESS** while its backlog has active items. Mark an individual dated
+   backlog entry complete without closing the phase permanently; future entries may reopen active
+   work.
+
+**Tests for the initial backlog**:
+- Home page: no new automated component test. It is static presentation and navigation; verify the
+  two link destinations manually and verify static generation through `npm run build`.
+- Dashboard greeting: reuse the tested `getCurrentUser()` boundary from Phase 6. Manually verify
+  the visible username after both login and registration, plus redirect behaviour when storage is
+  absent or malformed.
+
+**Deliverables for the initial backlog**:
+- Updated `src/app/page.tsx`
+- Updated dashboard header component/page from Phase 7
+- Updated acceptance criteria and dated review notes in this phase
+
+**Manual verification for the initial backlog**:
+- `/` contains no Next.js starter content and visibly offers Login and Register actions
+- Login opens `/login`; Register opens `/register`
+- After login or registration, `/dashboard` displays the exact stored username in
+  `Welcome, <username>`
+- Clearing or corrupting current-user storage does not display stale identity and redirects to
+  `/login`
+- No console errors at `/` or `/dashboard`
+
 ---
 
 ## Technical Implementation Details
 
-**Note**: Phases 1–3 are implemented. Fill in "What was actually built" under each later phase as
+**Note**: Phases 1–4 are implemented. Fill in "What was actually built" under each later phase as
 it lands, matching how `register-login-logout_prd.md` records deviations from plan.
 
 ### Key Files
@@ -978,21 +1056,26 @@ Database and service:
 
 API:
 
-- [ ] `GET /api/mcqs` returns every question with an accurate choice count, and an empty array when
+- [x] `GET /api/mcqs` returns every question with an accurate choice count, and an empty array when
       the bank is empty
-- [ ] `POST /api/mcqs` creates a question with 2–6 choices and returns it with its choices
-- [ ] Creating or updating with fewer than 2, more than 6, zero-correct, or multiple-correct choices
+- [x] `POST /api/mcqs` creates a question with 2–6 choices and returns it with its choices
+- [x] Creating or updating with fewer than 2, more than 6, zero-correct, or multiple-correct choices
       returns 400 with field-level detail
-- [ ] `GET /api/mcqs/[id]` returns the question with choices in position order; 404 for an unknown id
-- [ ] `PUT /api/mcqs/[id]` replaces name, question, and the full choice set
-- [ ] `DELETE /api/mcqs/[id]` returns success and the question is gone; 404 for an unknown id
+- [x] `GET /api/mcqs/[id]` returns the question with choices in position order; 404 for an unknown id
+- [x] `PUT /api/mcqs/[id]` replaces name, question, and the full choice set
+- [x] `DELETE /api/mcqs/[id]` returns success and the question is gone; 404 for an unknown id
 - [ ] `POST /api/mcqs/[id]/attempts` records an attempt with server-derived correctness
 - [ ] An `isCorrect` value supplied in an attempt request body is ignored
 - [ ] Submitting a `choiceId` from a different question returns 400
-- [ ] Every route handler validates its body with a Zod schema before touching the database
+- [x] Every route handler validates its body with a Zod schema before touching the database
 
 User interface:
 
+- [ ] `/` renders a welcoming MCQ test-bank page with working Login and Register links
+- [ ] `/` no longer displays Next.js starter logos, instructions, or external starter links
+- [ ] `/dashboard` displays `Welcome, <username>` using the stored current user
+- [ ] Missing or malformed current-user storage never displays stale identity and redirects to
+      `/login`
 - [ ] `/dashboard` lists all questions in a shadcn `Table` with name, question, choice count, and
       created date
 - [ ] Each row has a vertical-ellipsis actions button opening a dropdown with Edit, Preview, and
@@ -1179,6 +1262,8 @@ Two things from the auth phase are worth knowing before starting, because they w
 - Do not add session, cookie, or token logic. It is out of scope here even though the unverified
   `userId` makes it tempting. It belongs to its own PRD.
 - Do not add reporting, analytics, or an attempts UI beyond the preview page in Phase 9.
+- Maintain Phase 10 as the continuously reviewed bugfix/feature backlog. Add dated entries before
+  implementation, complete them one at a time, and use phase-numbered commit messages.
 - Ask before adding any npm dependency. This feature is planned to need none.
 - Never apply a migration with `--remote`. Deployment is developer-driven per phase.
 
@@ -1187,7 +1272,7 @@ Two things from the auth phase are worth knowing before starting, because they w
 ## Current Status
 
 **Last Updated**: September 7, 2026
-**Current Phase**: Phase 4 - MCQ CRUD Endpoints
-**Status**: Phases 1–3 COMPLETE; Phase 4 PLANNED
-**Next Steps**: Review Phase 3, then begin Phase 4 by writing the MCQ CRUD route tests and
-confirming they fail before creating the route handlers.
+**Current Phase**: Phase 5 - Attempts Endpoint
+**Status**: Phases 1–4 COMPLETE; Phase 5 PLANNED
+**Next Steps**: Review Phase 4, then begin Phase 5 by writing the attempts route tests and
+confirming they fail before creating the route handler.
