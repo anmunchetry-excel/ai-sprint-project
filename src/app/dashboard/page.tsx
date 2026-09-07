@@ -1,17 +1,32 @@
+import Link from "next/link";
+import { Plus } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
+import { McqTable } from "@/components/mcq-table";
+import { Button } from "@/components/ui/button";
 
 export default function DashboardPage() {
 	return (
-		<main className="flex min-h-svh flex-col">
-			<header className="flex justify-end p-6 md:p-10">
-				<LogoutButton />
-			</header>
-			<div className="flex flex-1 flex-col items-center justify-center p-6 pt-0 md:p-10 md:pt-0">
-				<div className="max-w-lg text-center">
-					<h1 className="text-3xl font-semibold tracking-tight">MCQ Test Bank</h1>
-					<p className="mt-4 text-muted-foreground">Coming soon.</p>
+		<main className="min-h-svh">
+			<header className="border-b">
+				<div className="mx-auto flex max-w-6xl items-center justify-between gap-4 p-6 md:px-10">
+					<div>
+						<h1 className="text-2xl font-semibold tracking-tight">MCQ Test Bank</h1>
+						<p className="text-sm text-muted-foreground">
+							Create and manage multiple-choice questions.
+						</p>
+					</div>
+					<div className="flex items-center gap-2">
+						<Button render={<Link href="/dashboard/mcqs/new" />}>
+							<Plus data-icon="inline-start" />
+							New question
+						</Button>
+						<LogoutButton />
+					</div>
 				</div>
-			</div>
+			</header>
+			<section className="mx-auto max-w-6xl p-6 md:p-10">
+				<McqTable />
+			</section>
 		</main>
 	);
 }

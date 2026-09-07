@@ -904,7 +904,7 @@ before redirecting; successful logout clears it. Green verification: 53 unit tes
 tests, and the full 123-test suite pass; `npm run lint` and `npm run build` both pass. No dependency
 or test-configuration change was needed.
 
-### Phase 7: Question List Page - PLANNED
+### Phase 7: Question List Page - COMPLETED
 
 **Objective**: Turn `/dashboard` into the question table.
 
@@ -928,12 +928,23 @@ navigation, verified manually below.
 - `src/components/ui/dropdown-menu.tsx`, `src/components/ui/alert-dialog.tsx` (generated)
 
 **Manual verification**:
-- The table lists every question with the correct choice count
-- The ellipsis button opens a dropdown with Edit, Preview, and Delete
-- Delete asks for confirmation, then removes the row without a page reload
-- Cancelling the confirmation deletes nothing
-- The empty state renders when the bank is empty
-- No console errors
+- [x] The table lists every question with the correct choice count
+- [x] The ellipsis button opens a dropdown with Edit, Preview, and Delete
+- [x] Delete asks for confirmation, then removes the row without a page reload
+- [x] Cancelling the confirmation deletes nothing
+- [x] The empty state renders when the bank is empty
+- [x] No console errors
+
+**What was actually built**: `McqTable` checks the stored user,
+loads and renders question summaries, provides Edit/Preview/Delete actions, confirms permanent
+deletion, removes a deleted row without reloading, and handles loading, error, and empty states.
+The dashboard shell now includes its heading, New question action, logout, and the table. The
+shadcn CLI generated `dropdown-menu` and `alert-dialog`; after explicit user approval, their
+generated `cn` imports were adapted to the project's existing `@/lib/utils` helper and the
+existing button component was preserved, so no dependency remained. The planned automated suite
+still has 123 passing tests, lint and build pass, and the server-rendered dashboard shell was
+smoke-tested over HTTP. The user then verified the seeded row, choice count, action dropdown,
+cancel flow, confirmed deletion, empty state, and browser console with no reported errors.
 
 ### Phase 8: Question Editor Pages - PLANNED
 
@@ -1044,7 +1055,7 @@ improvements, and incremental features discovered while exercising the completed
 
 ## Technical Implementation Details
 
-**Note**: Phases 1–6 are implemented. Fill in "What was actually built" under each later phase as
+**Note**: Phases 1–7 are implemented. Fill in "What was actually built" under each later phase as
 it lands, matching how `register-login-logout_prd.md` records deviations from plan.
 
 ### Key Files
@@ -1283,12 +1294,12 @@ User interface:
 - [ ] `/dashboard` displays `Welcome, <username>` using the stored current user
 - [ ] Missing or malformed current-user storage never displays stale identity and redirects to
       `/login`
-- [ ] `/dashboard` lists all questions in a shadcn `Table` with name, question, choice count, and
+- [x] `/dashboard` lists all questions in a shadcn `Table` with name, question, choice count, and
       created date
-- [ ] Each row has a vertical-ellipsis actions button opening a dropdown with Edit, Preview, and
+- [x] Each row has a vertical-ellipsis actions button opening a dropdown with Edit, Preview, and
       Delete
-- [ ] Delete asks for confirmation and removes the row from the table on success
-- [ ] A "New question" button navigates to `/dashboard/mcqs/new`
+- [x] Delete asks for confirmation and removes the row from the table on success
+- [x] A "New question" button navigates to `/dashboard/mcqs/new`
 - [ ] The new-question page starts with two choice rows, allows adding up to six, and allows
       removing back down to two
 - [ ] Exactly one choice can be marked correct; saving without one shows an error and makes no
@@ -1297,7 +1308,7 @@ User interface:
 - [ ] The edit page pre-fills existing values and persists changes
 - [ ] Preview renders the question without revealing the answer, records an attempt on submit, and
       then shows whether it was correct
-- [ ] The empty state renders when no questions exist
+- [x] The empty state renders when no questions exist
 - [ ] No console errors on any of the four screens
 
 Process:
@@ -1456,6 +1467,19 @@ itself while cleaning `.next`.
 successfully; restart `npm run dev` afterwards. No source file needed a change.
 **Code Reference**: `.next/server/app/api/mcqs/[id]/attempts` (generated; not committed)
 
+### Current shadcn registry adds an incompatible duplicate `cn` dependency
+**Problem**: Generating `dropdown-menu` and `alert-dialog` added the npm package `cn`, generated
+imports from `"cn"` instead of this project's `@/lib/utils`, and prompted to overwrite the existing
+shared `button.tsx` despite non-interactive flags.
+**Cause**: The current remote `base-nova` registry differs from the component generation style used
+to initialize this repository.
+**Solution**: With explicit user approval, keep the generated shadcn components, change only their
+`cn` imports to `@/lib/utils`, answer **no** to the button overwrite, remove the accidental `cn`
+dependency, and regenerate `package-lock.json` with `npm install`. The package files returned to
+their original state, so Phase 7 adds no dependency.
+**Code Reference**: `src/components/ui/dropdown-menu.tsx:5`,
+`src/components/ui/alert-dialog.tsx:6`
+
 Two things from the auth phase are worth knowing before starting, because they will bite again:
 
 - **Do not call `reset()` from `cloudflare:test` between tests.** It wipes the schema applied by
@@ -1503,7 +1527,7 @@ Two things from the auth phase are worth knowing before starting, because they w
 ## Current Status
 
 **Last Updated**: September 8, 2026
-**Current Phase**: Phase 7 - Question List Page
-**Status**: Phases 1–6 COMPLETE; Phase 7 PLANNED
-**Next Steps**: Review Phase 6, then begin Phase 7 by adding the approved shadcn components and
-building the dashboard question table.
+**Current Phase**: Phase 8 - Question Editor Pages
+**Status**: Phases 1–7 COMPLETE; Phase 8 PLANNED
+**Next Steps**: Review Phase 7, then begin Phase 8 by generating the textarea and radio-group
+components and building the shared create/edit form.
