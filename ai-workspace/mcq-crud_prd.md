@@ -946,7 +946,7 @@ still has 123 passing tests, lint and build pass, and the server-rendered dashbo
 smoke-tested over HTTP. The user then verified the seeded row, choice count, action dropdown,
 cancel flow, confirmed deletion, empty state, and browser console with no reported errors.
 
-### Phase 8: Question Editor Pages - PLANNED
+### Phase 8: Question Editor Pages - COMPLETED
 
 **Objective**: Create and edit questions in the browser.
 
@@ -972,13 +972,25 @@ behaviour and every validation rule are already covered by `mcq-client.test.ts` 
 - `src/components/ui/textarea.tsx`, `src/components/ui/radio-group.tsx` (generated)
 
 **Manual verification**:
-- The new-question page opens with exactly two empty choice rows
-- "Add choice" works up to six and is then disabled
-- Removing rows works down to two and is then unavailable
-- Saving with no correct choice selected shows a form-level error and makes no network call
-- Saving a valid question returns to `/dashboard` with the new row visible
-- Editing loads existing values, and saving persists the changes
-- Cancel discards changes
+- [x] The new-question page opens with exactly two empty choice rows
+- [x] "Add choice" works up to six and is then disabled
+- [x] Removing rows works down to two and is then unavailable
+- [x] Saving with no correct choice selected shows a form-level error and makes no network call
+- [x] Saving a valid question returns to `/dashboard` with the new row visible
+- [x] Editing loads existing values, and saving persists the changes
+- [x] Cancel discards changes
+
+**What was actually built**: the shared `McqForm` supports
+create and edit modes, 2–6 dynamic choices, one correct-answer radio selection, field/form errors,
+client-side schema validation through `mcq-client`, authenticated-user attribution, and
+save/cancel navigation. The create route renders two empty choices, while the edit route loads the
+question, shows loading/error states, and pre-fills the form. The shadcn textarea and radio-group
+components were generated using the Phase 7 compatibility decision: reuse `@/lib/utils` and remove
+the generator's duplicate `cn` package, leaving package files unchanged. Per plan, no new tests
+were added; all 123 existing tests, lint, and build pass. The production build includes the static
+new route and dynamic edit route, and both route shells passed HTTP smoke checks. The user then
+verified choice minimum/maximum controls, no-correct-answer validation without a network request,
+create, prefilled edit, persisted changes, cancel-without-save, and no browser console errors.
 
 ### Phase 9: Question Preview Page - PLANNED
 
@@ -1055,7 +1067,7 @@ improvements, and incremental features discovered while exercising the completed
 
 ## Technical Implementation Details
 
-**Note**: Phases 1–7 are implemented. Fill in "What was actually built" under each later phase as
+**Note**: Phases 1–8 are implemented. Fill in "What was actually built" under each later phase as
 it lands, matching how `register-login-logout_prd.md` records deviations from plan.
 
 ### Key Files
@@ -1300,12 +1312,12 @@ User interface:
       Delete
 - [x] Delete asks for confirmation and removes the row from the table on success
 - [x] A "New question" button navigates to `/dashboard/mcqs/new`
-- [ ] The new-question page starts with two choice rows, allows adding up to six, and allows
+- [x] The new-question page starts with two choice rows, allows adding up to six, and allows
       removing back down to two
-- [ ] Exactly one choice can be marked correct; saving without one shows an error and makes no
+- [x] Exactly one choice can be marked correct; saving without one shows an error and makes no
       network call
-- [ ] Save persists and returns to `/dashboard`; Cancel returns without saving
-- [ ] The edit page pre-fills existing values and persists changes
+- [x] Save persists and returns to `/dashboard`; Cancel returns without saving
+- [x] The edit page pre-fills existing values and persists changes
 - [ ] Preview renders the question without revealing the answer, records an attempt on submit, and
       then shows whether it was correct
 - [x] The empty state renders when no questions exist
@@ -1527,7 +1539,7 @@ Two things from the auth phase are worth knowing before starting, because they w
 ## Current Status
 
 **Last Updated**: September 8, 2026
-**Current Phase**: Phase 8 - Question Editor Pages
-**Status**: Phases 1–7 COMPLETE; Phase 8 PLANNED
-**Next Steps**: Review Phase 7, then begin Phase 8 by generating the textarea and radio-group
-components and building the shared create/edit form.
+**Current Phase**: Phase 9 - Question Preview Page
+**Status**: Phases 1–8 COMPLETE; Phase 9 PLANNED
+**Next Steps**: Review Phase 8, then begin Phase 9 by building the learner preview and attempt
+submission page.
