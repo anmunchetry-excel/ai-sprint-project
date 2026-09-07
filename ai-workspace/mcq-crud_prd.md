@@ -992,7 +992,7 @@ new route and dynamic edit route, and both route shells passed HTTP smoke checks
 verified choice minimum/maximum controls, no-correct-answer validation without a network request,
 create, prefilled edit, persisted changes, cancel-without-save, and no browser console errors.
 
-### Phase 9: Question Preview Page - PLANNED
+### Phase 9: Question Preview Page - COMPLETED
 
 **Objective**: Answer a question as a learner and record the attempt.
 
@@ -1010,12 +1010,25 @@ correctness rule in Phase 5. Verified manually below.
 - `src/app/dashboard/mcqs/[id]/preview/page.tsx`
 
 **Manual verification**:
-- Choices render in the authored order with no correctness hint before submitting
-- Submit is disabled until a choice is selected
-- A correct answer reports correct; an incorrect answer reports incorrect and reveals the right one
-- Each submission adds a row to `mcq_attempts`
+- [x] Choices render in the authored order with no correctness hint before submitting
+- [x] Submit is disabled until a choice is selected
+- [x] A correct answer reports correct; an incorrect answer reports incorrect and reveals the right one
+- [x] Each submission adds a row to `mcq_attempts`
   (`npx wrangler d1 execute DB --local --command "SELECT * FROM mcq_attempts"`)
-- Deleting the question afterwards also removes its attempt rows
+- [x] Deleting the question afterwards also removes its attempt rows
+
+**What was actually built**: the preview route
+loads the selected question, redirects when no current user is stored, preserves authored choice
+order, disables submission until a choice is selected, and hides all correctness indicators before
+submission. It records attempts through `submitAttempt`, displays correct/incorrect feedback,
+highlights the stored correct answer, marks an incorrect selected answer, supports repeated
+attempts through Try again, and links back to the dashboard. Per plan, no new tests were added; all
+123 existing tests and lint pass. The production build passes and lists the preview route as
+dynamic, and its server-rendered shell passed an HTTP smoke check. The user verified hidden
+correctness, disabled submission, incorrect and correct feedback, correct-answer highlighting, Try
+again, and no browser console errors. Wrangler 4.128.0 then confirmed two distinct local-D1 attempt
+rows (one correct and one incorrect); after the user deleted the question through the dashboard,
+the same query returned `attempt_count: 0`, confirming the foreign-key cascade.
 
 ### Phase 10: Continuous Bugfix and Feature Development - PLANNED
 
@@ -1067,7 +1080,7 @@ improvements, and incremental features discovered while exercising the completed
 
 ## Technical Implementation Details
 
-**Note**: Phases 1–8 are implemented. Fill in "What was actually built" under each later phase as
+**Note**: Phases 1–9 are implemented. Fill in "What was actually built" under each later phase as
 it lands, matching how `register-login-logout_prd.md` records deviations from plan.
 
 ### Key Files
@@ -1318,14 +1331,14 @@ User interface:
       network call
 - [x] Save persists and returns to `/dashboard`; Cancel returns without saving
 - [x] The edit page pre-fills existing values and persists changes
-- [ ] Preview renders the question without revealing the answer, records an attempt on submit, and
+- [x] Preview renders the question without revealing the answer, records an attempt on submit, and
       then shows whether it was correct
 - [x] The empty state renders when no questions exist
-- [ ] No console errors on any of the four screens
+- [x] No console errors on any of the four screens
 
 Process:
 
-- [ ] Every phase with automated tests had them written and observed failing (red) before its
+- [x] Every phase with automated tests had them written and observed failing (red) before its
       implementation existed, and passing (green) after
 - [x] `npm run test` passes with zero failures
 - [x] `npm run lint` and `npm run build` both pass
@@ -1470,14 +1483,15 @@ All commands under Manual cURL Verification use this working pattern.
 
 ### Production build cannot unlink a generated route directory on Windows
 **Problem**: After stopping the development server, `npm run build` failed with `EPERM: operation
-not permitted, unlink` for `.next/server/app/api/mcqs/[id]/attempts`.
+not permitted, unlink` first for `.next/server/app/api/mcqs/[id]/attempts` and later for
+`.next/server/app/dashboard/mcqs`.
 **Cause**: Windows/OneDrive retained a lock on the generated route directory. Deleting only the
 generated files inside it was insufficient because Next still needed to remove the directory
 itself while cleaning `.next`.
-**Solution**: Stop the dev-server process tree, remove the generated
-`.next/server/app/api/mcqs/[id]/attempts` directory, and rerun the build. The retry completed
-successfully; restart `npm run dev` afterwards. No source file needed a change.
-**Code Reference**: `.next/server/app/api/mcqs/[id]/attempts` (generated; not committed)
+**Solution**: Stop the dev-server process tree, remove the exact locked generated directory, and
+rerun the build. Both retries completed successfully; restart `npm run dev` afterwards. No source
+file needed a change.
+**Code Reference**: `.next/server/app/` (generated; not committed)
 
 ### Current shadcn registry adds an incompatible duplicate `cn` dependency
 **Problem**: Generating `dropdown-menu` and `alert-dialog` added the npm package `cn`, generated
@@ -1539,7 +1553,7 @@ Two things from the auth phase are worth knowing before starting, because they w
 ## Current Status
 
 **Last Updated**: September 8, 2026
-**Current Phase**: Phase 9 - Question Preview Page
-**Status**: Phases 1–8 COMPLETE; Phase 9 PLANNED
-**Next Steps**: Review Phase 8, then begin Phase 9 by building the learner preview and attempt
-submission page.
+**Current Phase**: Phase 10 - Continuous Bugfix and Feature Development
+**Status**: Phases 1–9 COMPLETE; Phase 10 PLANNED
+**Next Steps**: Review Phase 9, then begin the first Phase 10 backlog item: replace the starter home
+page with the welcome dashboard containing Login and Register links.
