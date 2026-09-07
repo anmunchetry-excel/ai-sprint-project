@@ -496,7 +496,7 @@ column, constraint, foreign-key, and cascade behaviours. Green verification: 29 
 the full 45-test suite pass. `npm run lint` and `npm run build` also pass. No dependency or test
 configuration change was needed.
 
-### Phase 2: Validation Schemas - PLANNED
+### Phase 2: Validation Schemas - COMPLETED
 
 **Objective**: One module defining what a valid question and a valid attempt look like.
 
@@ -519,6 +519,17 @@ configuration change was needed.
 **Deliverables**:
 - `src/lib/schemas/mcq.ts`
 - `src/lib/schemas/mcq.test.ts`, all green
+
+**What was actually built**: the four planned schemas plus the reusable exported
+`mcqChoicesSchema` and inferred `McqChoiceInput`, `CreateMcqInput`, `UpdateMcqInput`, and
+`AttemptInput` types. Seventeen tests were written first and confirmed red because `./mcq` did not
+exist, while the existing 16 unit tests remained green. The tests cover the planned boundaries and
+also verify trimming, a required create-only `userId`, whitespace-only attempt ids, and that update
+input is valid without a user id. The exact-one refinement produces the identifiable
+`\"Exactly one choice must be marked correct\"` issue at path `choices`, ready for the future form's
+form-level error. Green verification: 33 unit tests, 29 Workers tests, and the full 62-test suite
+pass; `npm run lint` is warning-free and `npm run build` passes. No dependency or configuration
+change was needed.
 
 ### Phase 3: MCQ Service - PLANNED
 
@@ -736,7 +747,7 @@ correctness rule in Phase 5. Verified manually below.
 
 ## Technical Implementation Details
 
-**Note**: Phase 1 is implemented. Fill in "What was actually built" under each later phase as it
+**Note**: Phases 1 and 2 are implemented. Fill in "What was actually built" under each later phase as it
 lands, matching how `register-login-logout_prd.md` records deviations from plan.
 
 ### Key Files
@@ -1164,7 +1175,7 @@ Two things from the auth phase are worth knowing before starting, because they w
 ## Current Status
 
 **Last Updated**: September 7, 2026
-**Current Phase**: Phase 2 - Validation Schemas
-**Status**: Phase 1 COMPLETE; Phase 2 PLANNED
-**Next Steps**: Review Phase 1, then begin Phase 2 by writing `src/lib/schemas/mcq.test.ts` and
-confirming it fails before creating the validation schemas.
+**Current Phase**: Phase 3 - MCQ Service
+**Status**: Phases 1–2 COMPLETE; Phase 3 PLANNED
+**Next Steps**: Review Phase 2, then begin Phase 3 by writing
+`src/lib/services/mcq-service.test.ts` and confirming it fails before creating the service.
