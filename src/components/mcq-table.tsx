@@ -116,7 +116,10 @@ export function McqTable() {
 						Create your first multiple-choice question to start the test bank.
 					</p>
 				</div>
-				<Button render={<Link href="/dashboard/mcqs/new" />}>
+				<Button
+					nativeButton={false}
+					render={<Link href="/dashboard/mcqs/new" />}
+				>
 					<Plus data-icon="inline-start" />
 					New question
 				</Button>

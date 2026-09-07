@@ -1038,6 +1038,7 @@ improvements, and incremental features discovered while exercising the completed
 **Initial backlog**:
 1. Replace the Next.js starter home page with a welcome page containing Login and Register links.
 2. Display `Welcome, <username>` in the dashboard header using the Phase 6 current-user helper.
+3. Redirect successful logout to the home page instead of the login page.
 
 #### September 8, 2026 — Welcome Home Page (COMPLETE)
 
@@ -1064,22 +1065,59 @@ and `/register` destinations and no starter content. All 123 tests and lint pass
 build passes and confirms `/` remains statically generated. The user reviewed the implementation
 and confirmed it is correct.
 
-#### September 8, 2026 — Dashboard Username Greeting (PENDING)
+#### September 8, 2026 — Dashboard Username Greeting (COMPLETE)
 
 **Expected behaviour**: after successful login or registration, `/dashboard` displays
 `Welcome, <username>` using the validated user stored by the Phase 6 current-user helper. Missing
-or malformed storage must not display stale identity and must redirect to `/login`.
+or malformed storage must not display stale identity and must redirect to `/login`. The MCQ Test
+Bank heading is centered, while the large welcome message is aligned to the left. The New question
+action belongs in the dashboard content above the table, not in the header.
 
 **Acceptance criteria**:
-- The dashboard header displays the exact stored username as `Welcome, <username>`
-- Both login and registration flows produce the greeting
-- Missing or malformed current-user storage redirects to `/login` without showing stale identity
-- The existing question table, New question action, and logout remain functional
-- `npm run test`, `npm run lint`, and `npm run build` pass
+- [x] The dashboard header displays the exact stored username as `Welcome, <username>`
+- [x] The MCQ Test Bank heading is centered and the large welcome message is left-aligned
+- [x] The header contains logout but not New question; New question appears above the table
+- [x] Both login and registration flows produce the greeting
+- [x] Missing or malformed current-user storage redirects to `/login` without showing stale identity
+- [x] The existing question table, New question action, and logout remain functional
+- [x] `npm run test`, `npm run lint`, and `npm run build` pass
 
 **Test approach**: reuse the unit-tested `getCurrentUser()` storage boundary. No component-test
 framework is installed, so manually verify login, registration, malformed/cleared storage,
 responsive rendering, and the browser console.
+
+**What was actually built**: a new client-side
+`DashboardHeader` reads the username through `useSyncExternalStore`, using `null` for the server
+snapshot so no identity is rendered before browser storage is validated. A side-effect-only
+redirect sends missing or malformed storage to `/login`; valid storage renders
+`Welcome, <username>` while preserving existing dashboard actions. The first implementation
+used synchronous state inside an effect and failed the React 19 lint rule; replacing it with the
+external-store snapshot resolved the issue.
+The first browser review requested a layout correction: keep the product heading centered but
+move the prominent welcome message to the left. It also exposed a Base UI accessibility warning:
+Buttons rendered as Next.js links still had `nativeButton=true`. The layout was corrected and every
+link-rendered Button was changed to `nativeButton={false}` so Base UI expects anchor semantics on
+the home, dashboard, empty, edit-error, and preview screens. After these corrections, all 123
+tests, lint, and the production build pass. A subsequent review moved New question out of the
+header and into the content area above the table. The user approved the final left/center/right
+header alignment, relocated action, and console-warning fix.
+
+#### September 8, 2026 — Logout Returns Home (PENDING)
+
+**Expected behaviour**: after the logout API succeeds, local current-user storage is cleared and
+the browser navigates to `/`, where the user can choose Login or Register. Failed logout requests
+remain on the dashboard and continue to show the existing error.
+
+**Acceptance criteria**:
+- Successful logout clears `ai-sprint:current-user`
+- Successful logout navigates to `/`, not `/login`
+- The welcome home page renders after logout
+- Failed logout retains the current error behaviour
+- `npm run test`, `npm run lint`, and `npm run build` pass
+
+**Test approach**: update the existing logout component navigation after the successful
+`logoutUser()` result. Manually verify dashboard → logout → home navigation and confirm the cleared
+storage redirects a direct `/dashboard` visit to `/login`.
 
 **Continuous review protocol**:
 1. Keep a dated backlog under this phase. Add each newly reported bug or feature before changing
@@ -1103,10 +1141,13 @@ responsive rendering, and the browser console.
 - Dashboard greeting: reuse the tested `getCurrentUser()` boundary from Phase 6. Manually verify
   the visible username after both login and registration, plus redirect behaviour when storage is
   absent or malformed.
+- Logout destination: reuse the tested logout API client and manually verify that a successful
+  logout clears current-user storage and lands on `/`.
 
 **Deliverables for the initial backlog**:
 - Updated `src/app/page.tsx`
 - Updated dashboard header component/page from Phase 7
+- Updated `src/components/logout-button.tsx`
 - Updated acceptance criteria and dated review notes in this phase
 
 **Manual verification for the initial backlog**:
@@ -1116,6 +1157,7 @@ responsive rendering, and the browser console.
   `Welcome, <username>`
 - Clearing or corrupting current-user storage does not display stale identity and redirects to
   `/login`
+- Successful logout lands on `/` and a subsequent direct `/dashboard` visit redirects to `/login`
 - No console errors at `/` or `/dashboard`
 
 ---
@@ -1596,6 +1638,6 @@ Two things from the auth phase are worth knowing before starting, because they w
 
 **Last Updated**: September 8, 2026
 **Current Phase**: Phase 10 - Continuous Bugfix and Feature Development
-**Status**: Phases 1–9 COMPLETE; Phase 10 IN PROGRESS (home page complete; greeting pending)
-**Next Steps**: Commit and push the approved welcome home page iteration, then begin the separately
-tracked dashboard username greeting.
+**Status**: Phases 1–9 COMPLETE; Phase 10 IN PROGRESS (home page and greeting complete; logout pending)
+**Next Steps**: Commit and push the approved dashboard greeting iteration, then implement the
+separately tracked logout-to-home backlog item.

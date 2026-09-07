@@ -89,7 +89,12 @@ export default function PreviewMcqPage({
 	return (
 		<main className="min-h-svh bg-muted/20">
 			<div className="mx-auto max-w-3xl p-6 md:p-10">
-				<Button variant="ghost" render={<Link href="/dashboard" />} className="mb-4">
+				<Button
+					variant="ghost"
+					nativeButton={false}
+					render={<Link href="/dashboard" />}
+					className="mb-4"
+				>
 					<ArrowLeft data-icon="inline-start" />
 					Back to questions
 				</Button>

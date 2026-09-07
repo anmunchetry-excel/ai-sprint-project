@@ -21,10 +21,16 @@ export default function Home() {
 						MCQ Test Bank
 					</Link>
 					<nav className="flex items-center gap-2" aria-label="Account">
-						<Button variant="ghost" render={<Link href="/login" />}>
+						<Button
+							variant="ghost"
+							nativeButton={false}
+							render={<Link href="/login" />}
+						>
 							Login
 						</Button>
-						<Button render={<Link href="/register" />}>Register</Button>
+						<Button nativeButton={false} render={<Link href="/register" />}>
+							Register
+						</Button>
 					</nav>
 				</div>
 			</header>
@@ -43,10 +49,19 @@ export default function Home() {
 						question exactly as a learner will see it.
 					</p>
 					<div className="mt-8 flex flex-col gap-3 sm:flex-row">
-						<Button size="lg" render={<Link href="/register" />}>
+						<Button
+							size="lg"
+							nativeButton={false}
+							render={<Link href="/register" />}
+						>
 							Create an account
 						</Button>
-						<Button size="lg" variant="outline" render={<Link href="/login" />}>
+						<Button
+							size="lg"
+							variant="outline"
+							nativeButton={false}
+							render={<Link href="/login" />}
+						>
 							Login to your test bank
 						</Button>
 					</div>

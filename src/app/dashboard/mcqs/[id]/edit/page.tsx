@@ -65,6 +65,7 @@ export default function EditMcqPage({
 						<Button
 							className="mt-4"
 							variant="outline"
+							nativeButton={false}
 							render={<Link href="/dashboard" />}
 						>
 							Back to questions
