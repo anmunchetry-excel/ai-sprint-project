@@ -531,7 +531,7 @@ form-level error. Green verification: 33 unit tests, 29 Workers tests, and the f
 pass; `npm run lint` is warning-free and `npm run build` passes. No dependency or configuration
 change was needed.
 
-### Phase 3: MCQ Service - PLANNED
+### Phase 3: MCQ Service - COMPLETED
 
 **Objective**: The one module that reads and writes all three MCQ tables.
 
@@ -567,6 +567,18 @@ change was needed.
 **Deliverables**:
 - `src/lib/services/mcq-service.ts`
 - `src/lib/services/mcq-service.test.ts`, all green
+
+**What was actually built**: all seven planned service functions, with explicit `db` parameters,
+prepared statements, `db.batch()` for atomic question/choice writes, row-shape conversion at the
+service boundary, and position-preserving updates. Fifteen Workers-runtime tests were written first
+and confirmed red because `./mcq-service` did not exist, while the existing 29 Workers tests
+remained green. The service exposes the planned `McqUserNotFoundError` plus typed
+`McqNotFoundError`, `McqChoiceNotFoundError`, and `ChoiceNotForMcqError` for the Phase 4–5 routes.
+Tests verify 2→4 growth, 4→2 shrink, stable retained choice ids, surviving attempt history,
+server-derived integer/boolean correctness, cascading delete, and deterministic newest-first
+attempt ordering. Green verification: 33 unit tests, 44 Workers tests, and the full 77-test suite
+pass; `npm run lint` and `npm run build` both pass. No dependency or configuration change was
+needed.
 
 ### Phase 4: MCQ CRUD Endpoints - PLANNED
 
@@ -747,8 +759,8 @@ correctness rule in Phase 5. Verified manually below.
 
 ## Technical Implementation Details
 
-**Note**: Phases 1 and 2 are implemented. Fill in "What was actually built" under each later phase as it
-lands, matching how `register-login-logout_prd.md` records deviations from plan.
+**Note**: Phases 1–3 are implemented. Fill in "What was actually built" under each later phase as
+it lands, matching how `register-login-logout_prd.md` records deviations from plan.
 
 ### Key Files
 
@@ -960,9 +972,9 @@ Database and service:
 - [x] A question cannot be created with a `created_by_user_id` that is not in `users`
 - [x] Deleting a question removes its choices and its attempts
 - [x] Two choices on the same question cannot share a `position`
-- [ ] Editing a question's text preserves the ids of choices at positions that still exist, so
+- [x] Editing a question's text preserves the ids of choices at positions that still exist, so
       existing attempt rows survive
-- [ ] All MCQ database access goes through `src/lib/services/mcq-service.ts`
+- [x] All MCQ database access goes through `src/lib/services/mcq-service.ts`
 
 API:
 
@@ -1175,7 +1187,7 @@ Two things from the auth phase are worth knowing before starting, because they w
 ## Current Status
 
 **Last Updated**: September 7, 2026
-**Current Phase**: Phase 3 - MCQ Service
-**Status**: Phases 1–2 COMPLETE; Phase 3 PLANNED
-**Next Steps**: Review Phase 2, then begin Phase 3 by writing
-`src/lib/services/mcq-service.test.ts` and confirming it fails before creating the service.
+**Current Phase**: Phase 4 - MCQ CRUD Endpoints
+**Status**: Phases 1–3 COMPLETE; Phase 4 PLANNED
+**Next Steps**: Review Phase 3, then begin Phase 4 by writing the MCQ CRUD route tests and
+confirming they fail before creating the route handlers.
