@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { logoutUser } from "@/lib/auth-client";
+import { clearCurrentUser } from "@/lib/current-user";
 import { Button } from "@/components/ui/button";
 
 export function LogoutButton() {
@@ -19,6 +20,7 @@ export function LogoutButton() {
 		setIsSubmitting(false);
 
 		if (result.ok) {
+			clearCurrentUser();
 			router.push("/login");
 			return;
 		}

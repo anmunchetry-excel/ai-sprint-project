@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { loginUser } from "@/lib/auth-client";
+import { setCurrentUser } from "@/lib/current-user";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +48,7 @@ export function LoginForm({
 		setIsSubmitting(false);
 
 		if (result.ok) {
+			setCurrentUser(result.user);
 			router.push("/dashboard");
 			return;
 		}

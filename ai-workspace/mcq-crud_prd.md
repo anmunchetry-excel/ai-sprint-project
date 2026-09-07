@@ -855,7 +855,7 @@ tests, 70 Workers tests, and the full 103-test suite pass; `npm run lint` and `n
 pass. The production build lists `/api/mcqs/[id]/attempts` as a dynamic route. No dependency or
 configuration change was needed.
 
-### Phase 6: Browser Client and Current-User Helper - PLANNED
+### Phase 6: Browser Client and Current-User Helper - COMPLETED
 
 **Objective**: Give the UI layer typed functions to call the API, and a user id to send.
 
@@ -892,6 +892,17 @@ configuration change was needed.
 - `src/lib/current-user.ts` + `current-user.test.ts`
 - `src/lib/mcq-client.ts` + `mcq-client.test.ts`
 - Three updated auth components
+
+**What was actually built**: both planned browser modules and all three auth-component updates.
+Twenty unit tests were written first and confirmed red because `current-user.ts` and
+`mcq-client.ts` did not exist, while all existing 33 unit tests remained green. The current-user
+helper is SSR-safe, catches unavailable storage, and performs a runtime shape check rather than
+blindly trusting parsed JSON. The MCQ client validates create/update/attempt inputs before fetch,
+returns typed discriminated results, URL-encodes ids, handles network/unreadable responses, and
+hides server details behind a generic message. Login and registration persist the returned user
+before redirecting; successful logout clears it. Green verification: 53 unit tests, 70 Workers
+tests, and the full 123-test suite pass; `npm run lint` and `npm run build` both pass. No dependency
+or test-configuration change was needed.
 
 ### Phase 7: Question List Page - PLANNED
 
@@ -1033,7 +1044,7 @@ improvements, and incremental features discovered while exercising the completed
 
 ## Technical Implementation Details
 
-**Note**: Phases 1–5 are implemented. Fill in "What was actually built" under each later phase as
+**Note**: Phases 1–6 are implemented. Fill in "What was actually built" under each later phase as
 it lands, matching how `register-login-logout_prd.md` records deviations from plan.
 
 ### Key Files
@@ -1434,6 +1445,17 @@ GUID suffix to 12 characters. The corrected register → create → attempt → 
 All commands under Manual cURL Verification use this working pattern.
 **Code Reference**: `ai-workspace/mcq-crud_prd.md:357`
 
+### Production build cannot unlink a generated route directory on Windows
+**Problem**: After stopping the development server, `npm run build` failed with `EPERM: operation
+not permitted, unlink` for `.next/server/app/api/mcqs/[id]/attempts`.
+**Cause**: Windows/OneDrive retained a lock on the generated route directory. Deleting only the
+generated files inside it was insufficient because Next still needed to remove the directory
+itself while cleaning `.next`.
+**Solution**: Stop the dev-server process tree, remove the generated
+`.next/server/app/api/mcqs/[id]/attempts` directory, and rerun the build. The retry completed
+successfully; restart `npm run dev` afterwards. No source file needed a change.
+**Code Reference**: `.next/server/app/api/mcqs/[id]/attempts` (generated; not committed)
+
 Two things from the auth phase are worth knowing before starting, because they will bite again:
 
 - **Do not call `reset()` from `cloudflare:test` between tests.** It wipes the schema applied by
@@ -1481,7 +1503,7 @@ Two things from the auth phase are worth knowing before starting, because they w
 ## Current Status
 
 **Last Updated**: September 8, 2026
-**Current Phase**: Phase 6 - Browser Client and Current-User Helper
-**Status**: Phases 1–5 COMPLETE; Phase 6 PLANNED
-**Next Steps**: Review Phase 5 and its cURL verification commands, then begin Phase 6 by writing
-the browser-client and current-user tests before creating their implementations.
+**Current Phase**: Phase 7 - Question List Page
+**Status**: Phases 1–6 COMPLETE; Phase 7 PLANNED
+**Next Steps**: Review Phase 6, then begin Phase 7 by adding the approved shadcn components and
+building the dashboard question table.
