@@ -1,0 +1,29 @@
+---
+description: Require approval, commit, and push after every implementation phase
+alwaysApply: true
+---
+
+# Phase Commit Workflow
+
+When work is organized into implementation phases:
+
+1. Complete only the current phase, including its tests, documentation, and acceptance criteria.
+2. Run the repository's required verification commands. Do not call a phase complete while any
+   required check is failing.
+3. Update the technical PRD with the phase status, actual implementation, verification results,
+   troubleshooting notes, and next phase.
+4. Review `git status` and identify the exact files belonging to the phase. Never stage unrelated
+   user changes, generated artifacts, secrets, or work from another phase.
+5. Stop and ask the user for explicit approval of the completed phase. Include:
+   - a concise summary of what changed;
+   - the actual test, lint, and build results;
+   - the exact files that will be committed;
+   - the proposed commit message.
+6. Do not commit, push, or begin the next phase until the user approves.
+7. After approval, commit only the approved phase files and push that commit to the current branch.
+   Do not switch, create, merge, rebase, or force-push branches unless the user separately asks.
+8. Report the commit hash, current branch, and push result. If authentication, authorization, or
+   the remote blocks the push, report the failure and stop rather than changing repository setup.
+
+Approval is phase-specific. Approval for one phase does not authorize later phase commits or
+pushes. Never amend an existing commit unless the user explicitly requests it.
